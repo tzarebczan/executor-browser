@@ -719,8 +719,23 @@ function detectTsWebRtc(timeoutMs = 2800) {
   });
 }
 
-/** Advanced: find companion + TS IP; register if auth + companion ready. */
+/** Advanced: companion/TS only when drive mode is companion (not path B reverse). */
 async function autoAdvanced({ register = true } = {}) {
+  const driveMode =
+    lastStatus?.driveMode || lastStatus?.settings?.driveMode || "reverse";
+
+  // Path B: never register MCP chrome/desktop — that creates a remote catalog
+  // sync against :9230 and surfaces "incomplete tool catalog" when companion is off.
+  if (driveMode === "reverse" || driveMode === "off") {
+    if ($("advancedHint")) {
+      $("advancedHint").textContent =
+        driveMode === "reverse"
+          ? "Path B reverse — skip companion MCP register"
+          : "Drive off";
+    }
+    return { companion: false, skipped: true, reason: driveMode };
+  }
+
   const companion = await chrome.runtime.sendMessage({ type: "checkCompanion" });
   if (!companion?.ok) {
     if ($("advancedHint")) $("advancedHint").textContent = "Companion offline";
@@ -741,6 +756,17 @@ async function autoAdvanced({ register = true } = {}) {
       $("publicEndpoint").value = endpoint;
       await chrome.runtime.sendMessage({ type: "saveSecrets", publicEndpoint: endpoint });
     }
+  }
+
+  // Native host mode: probe only, don't force MCP register unless companion mode
+  if (driveMode === "native") {
+    if ($("advancedHint")) {
+      $("advancedHint").textContent = companion?.ok
+        ? "Native mode — use Connect host in Advanced"
+        : "Native host offline";
+    }
+    await refresh();
+    return { companion: Boolean(companion?.ok), endpoint, registered: false };
   }
 
   if (!register || !authOk || !endpoint) {
