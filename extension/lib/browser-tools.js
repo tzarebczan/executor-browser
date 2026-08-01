@@ -231,16 +231,38 @@ async function navigate(tabId, { url, newTab } = {}) {
   return { ok: true, tab: { id: tab.id, url } };
 }
 
+/** Chrome MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND — space agent screenshots too. */
+let lastToolCaptureAt = 0;
+const TOOL_CAPTURE_GAP_MS = 1100;
+
 async function screenshot(tabId) {
   const tab = await resolveTab(tabId);
   if (!tab?.windowId) return { ok: false, error: "No tab window" };
   if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
   if (tab.id) await chrome.tabs.update(tab.id, { active: true });
-  await new Promise((r) => setTimeout(r, 100));
-  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-    format: "jpeg",
-    quality: 55,
-  });
+  const wait = Math.max(0, TOOL_CAPTURE_GAP_MS - (Date.now() - lastToolCaptureAt));
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  else await new Promise((r) => setTimeout(r, 100));
+  lastToolCaptureAt = Date.now();
+  let dataUrl;
+  try {
+    dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+      format: "jpeg",
+      quality: 55,
+    });
+  } catch (e) {
+    const msg = String(e?.message || e);
+    if (/MAX_CAPTURE|quota|exceeds/i.test(msg)) {
+      await new Promise((r) => setTimeout(r, TOOL_CAPTURE_GAP_MS));
+      lastToolCaptureAt = Date.now();
+      dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        format: "jpeg",
+        quality: 55,
+      });
+    } else {
+      throw e;
+    }
+  }
   return {
     ok: true,
     tab: { id: tab.id, url: tab.url, title: tab.title },

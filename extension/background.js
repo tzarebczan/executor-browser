@@ -103,7 +103,7 @@ async function probeCompanionMcp() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.1.0" },
+          clientInfo: { name: "executor-browser", version: "0.7.0" },
         },
       }),
     });
@@ -164,6 +164,34 @@ async function openAgentTab(url) {
   return tab;
 }
 
+/** Chrome enforces MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND (~2/s). Serialize + space calls. */
+const CAPTURE_MIN_GAP_MS = 1100;
+let lastCaptureVisibleAt = 0;
+let captureVisibleChain = Promise.resolve();
+
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Rate-limited captureVisibleTab shared by preview + (via await) other paths.
+ * @param {number} windowId
+ * @param {{ format?: string, quality?: number }} opts
+ */
+async function captureVisibleTabLimited(windowId, opts = { format: "jpeg", quality: 60 }) {
+  const run = async () => {
+    const wait = Math.max(0, CAPTURE_MIN_GAP_MS - (Date.now() - lastCaptureVisibleAt));
+    if (wait > 0) await sleepMs(wait);
+    lastCaptureVisibleAt = Date.now();
+    return chrome.tabs.captureVisibleTab(windowId, opts);
+  };
+  const next = captureVisibleChain.then(run, run);
+  // Keep chain alive even if this capture fails
+  captureVisibleChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
 /**
  * Capture the visible tab in a window.
  * Needs host permission <all_urls> (manifest) — activeTab alone is not enough
@@ -171,6 +199,7 @@ async function openAgentTab(url) {
  *
  * Chrome throws "view is invisible" when the target window is minimized,
  * occluded by the side panel focus, or the tab has not painted yet.
+ * Also throws MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND if called too often.
  *
  * @param {{ focus?: boolean }} opts  focus:true steals window focus (user Capture click)
  */
@@ -228,18 +257,13 @@ async function capturePreview(opts = {}) {
     };
   }
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
   /** Make window/tab paintable for captureVisibleTab. */
   async function prepareWindow(stealFocus) {
     try {
       const win = await chrome.windows.get(tab.windowId);
-      if (win?.state === "minimized" || win?.state === "fullscreen") {
-        // fullscreen can still capture; minimized cannot
-        if (win.state === "minimized") {
-          await chrome.windows.update(tab.windowId, { state: "normal" });
-          await sleep(150);
-        }
+      if (win?.state === "minimized") {
+        await chrome.windows.update(tab.windowId, { state: "normal" });
+        await sleepMs(200);
       }
     } catch {
       /* ignore */
@@ -248,38 +272,28 @@ async function capturePreview(opts = {}) {
       const winTabs = await chrome.tabs.query({ windowId: tab.windowId, active: true });
       if (!winTabs.length || winTabs[0].id !== tab.id) {
         await chrome.tabs.update(tab.id, { active: true });
-        await sleep(160);
+        await sleepMs(180);
       }
     }
     if (stealFocus) {
       await chrome.windows.update(tab.windowId, { focused: true });
-      await sleep(120);
+      await sleepMs(150);
     }
   }
 
-  async function snap() {
-    return chrome.tabs.captureVisibleTab(tab.windowId, {
-      format: "jpeg",
-      quality: 60,
-    });
-  }
-
   try {
-    // Soft capture: don't steal OS focus first. On "view is invisible", restore
-    // window + focus + retry once (side panel often makes the tab "invisible").
+    // At most one retry for invisible (rate-limited). Never triple-fire.
     await prepareWindow(focus);
     let dataUrl;
     try {
-      dataUrl = await snap();
+      dataUrl = await captureVisibleTabLimited(tab.windowId, { format: "jpeg", quality: 60 });
     } catch (first) {
       const m = String(first?.message || first);
-      if (/invisible|not visible|cannot capture/i.test(m)) {
-        await prepareWindow(true);
-        await sleep(200);
-        dataUrl = await snap();
-      } else {
-        throw first;
-      }
+      if (/MAX_CAPTURE_VISIBLE_TAB|quota|exceeds/i.test(m)) throw first;
+      if (!/invisible|not visible|cannot capture/i.test(m)) throw first;
+      await prepareWindow(true);
+      // Gap is enforced by captureVisibleTabLimited (~1.1s)
+      dataUrl = await captureVisibleTabLimited(tab.windowId, { format: "jpeg", quality: 60 });
     }
     return {
       ok: true,
@@ -293,6 +307,13 @@ async function capturePreview(opts = {}) {
       return {
         ok: false,
         error: "Reload the extension on chrome://extensions (permissions), then Capture again",
+        tab,
+      };
+    }
+    if (/MAX_CAPTURE_VISIBLE_TAB|quota|exceeds/i.test(msg)) {
+      return {
+        ok: false,
+        error: "Capture rate-limited by Chrome — wait a second and try again",
         tab,
       };
     }
@@ -367,7 +388,7 @@ async function verifyExecutorAuth() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.6.0" },
+          clientInfo: { name: "executor-browser", version: "0.7.0" },
         },
       }),
     });
@@ -544,7 +565,7 @@ async function registerWithExecutor({ endpoint }) {
     params: {
       protocolVersion: "2024-11-05",
       capabilities: {},
-      clientInfo: { name: "executor-browser", version: "0.1.0" },
+      clientInfo: { name: "executor-browser", version: "0.7.0" },
     },
   });
   if (!init.ok) {

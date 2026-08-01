@@ -572,7 +572,7 @@ async function refresh() {
     list.querySelectorAll("button[data-tab]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         await chrome.tabs.update(Number(btn.dataset.tab), { active: true });
-        await capture({ focus: false });
+        await capture({ focus: false, soft: true });
       });
     });
   }
@@ -615,35 +615,67 @@ function friendlyCaptureError(err) {
   if (/invisible|not visible|cannot capture/i.test(s)) {
     return "Tab not visible — bring the agent Chrome window to front, then Capture.";
   }
+  if (/MAX_CAPTURE|quota|rate-limited|exceeds/i.test(s)) {
+    return "Chrome limits captures to ~1/sec — wait a moment and Capture again.";
+  }
   return s.slice(0, 140) || "Capture failed";
 }
 
-async function capture({ focus = false } = {}) {
-  $("btnCapture").disabled = true;
-  const res = await chrome.runtime.sendMessage({ type: "capturePreview", focus });
-  $("btnCapture").disabled = false;
-  const errEl = $("previewError");
-  if (!res?.ok) {
-    $("previewEmpty").hidden = false;
-    $("previewImg").hidden = true;
-    const msg = friendlyCaptureError(res?.error);
-    $("previewUrl").textContent = "Capture failed";
-    $("previewTitle").textContent = "—";
-    $("previewEmptyTitle").textContent = "Local preview";
-    $("previewEmptyHint").textContent = msg;
-    errEl.hidden = false;
-    errEl.textContent = msg;
-    if ($("previewLocalTag")) $("previewLocalTag").hidden = true;
-    return;
+/** Coalesce rapid Capture clicks + boot/auto soft captures (Chrome quota ~2/s). */
+let captureInFlight = null;
+let lastSoftCaptureAt = 0;
+const SOFT_CAPTURE_COOLDOWN_MS = 2500;
+
+async function capture({ focus = false, soft = false } = {}) {
+  if (soft) {
+    if (Date.now() - lastSoftCaptureAt < SOFT_CAPTURE_COOLDOWN_MS) return;
+    if (captureInFlight) return;
   }
-  errEl.hidden = true;
-  $("previewEmpty").hidden = true;
-  if ($("previewLocalTag")) $("previewLocalTag").hidden = false;
-  const img = $("previewImg");
-  img.hidden = false;
-  img.src = res.dataUrl;
-  $("previewUrl").textContent = res.tab?.url || "";
-  $("previewTitle").textContent = res.tab?.title || "Preview";
+  if (captureInFlight) {
+    // User click waits for in-flight; soft skips
+    if (soft) return;
+    try {
+      await captureInFlight;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  captureInFlight = (async () => {
+    if ($("btnCapture")) $("btnCapture").disabled = true;
+    if ($("btnCaptureTabs")) $("btnCaptureTabs").disabled = true;
+    try {
+      const res = await chrome.runtime.sendMessage({ type: "capturePreview", focus });
+      const errEl = $("previewError");
+      if (!res?.ok) {
+        $("previewEmpty").hidden = false;
+        $("previewImg").hidden = true;
+        const msg = friendlyCaptureError(res?.error);
+        $("previewUrl").textContent = "—";
+        $("previewTitle").textContent = "Capture failed";
+        $("previewEmptyTitle").textContent = "Capture failed";
+        $("previewEmptyHint").textContent = msg;
+        errEl.hidden = false;
+        errEl.textContent = msg;
+        if ($("previewLocalTag")) $("previewLocalTag").hidden = true;
+        return;
+      }
+      errEl.hidden = true;
+      $("previewEmpty").hidden = true;
+      if ($("previewLocalTag")) $("previewLocalTag").hidden = false;
+      const img = $("previewImg");
+      img.hidden = false;
+      img.src = res.dataUrl;
+      $("previewUrl").textContent = res.tab?.url || "";
+      $("previewTitle").textContent = res.tab?.title || "Preview";
+      if (soft) lastSoftCaptureAt = Date.now();
+    } finally {
+      if ($("btnCapture")) $("btnCapture").disabled = false;
+      if ($("btnCaptureTabs")) $("btnCaptureTabs").disabled = false;
+      captureInFlight = null;
+    }
+  })();
+  return captureInFlight;
 }
 
 async function openAgentTab() {
@@ -654,7 +686,8 @@ async function openAgentTab() {
     url: "https://tbd.jiggytom.com/",
   });
   await refresh();
-  setTimeout(() => capture({ focus: false }), 700);
+  // Soft preview after paint; rate-limited so it won't collide with boot capture
+  setTimeout(() => capture({ focus: false, soft: true }), 1600);
   toast("Opened agent tab");
 }
 
@@ -1239,7 +1272,8 @@ $("btnSaveAdvanced")?.addEventListener("click", async () => {
 
   fillAgentPrompt(lastStatus?.settings);
   bootDone = true;
-  setTimeout(() => capture({ focus: false }), 400);
+  // One soft preview after boot settles — never burst with open-tab / retries
+  setTimeout(() => capture({ focus: false, soft: true }), 1800);
 })();
 
 setInterval(async () => {
