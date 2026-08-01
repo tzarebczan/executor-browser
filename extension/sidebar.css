@@ -470,6 +470,62 @@ pre.cmd {
 }
 
 /* Detection status matrix */
+.mx-group {
+  margin-bottom: 12px;
+}
+
+.mx-group:last-of-type {
+  margin-bottom: 6px;
+}
+
+.mx-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.mx-tag {
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--elevated);
+  color: var(--muted);
+}
+
+.mx-tag.ok-tag {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.mx-tag.optional-tag {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.mx-group.optional {
+  padding: 8px;
+  border-radius: 9px;
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--card) 60%, var(--bg));
+}
+
+.mx-blurb {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 .matrix {
   list-style: none;
   margin: 0 0 10px;
@@ -477,6 +533,10 @@ pre.cmd {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.mx-group .matrix {
+  margin-bottom: 0;
 }
 
 .matrix.tight {
@@ -489,7 +549,7 @@ pre.cmd {
   gap: 8px;
   align-items: center;
   font-size: 12px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border-radius: 7px;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -514,8 +574,19 @@ pre.cmd {
 .mx.run .mx-icon {
   color: var(--accent);
 }
-.mx.off .mx-icon {
-  color: var(--muted);
+.mx.off .mx-icon,
+.mx.skip .mx-icon {
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+
+.mx.skip,
+.mx.is-optional.skip {
+  border-style: dashed;
+  opacity: 0.88;
+}
+
+.mx.bad {
+  border-color: color-mix(in srgb, var(--bad) 35%, var(--border));
 }
 
 .mx-label {
@@ -523,11 +594,16 @@ pre.cmd {
   font-weight: 550;
 }
 
+.mx.skip .mx-label {
+  color: var(--muted);
+  font-weight: 500;
+}
+
 .mx-detail {
   color: var(--muted);
   font-size: 11px;
   text-align: right;
-  max-width: 45%;
+  max-width: 48%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

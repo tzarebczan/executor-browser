@@ -63,11 +63,25 @@ document.querySelectorAll("[data-goto]").forEach((el) => {
   el.addEventListener("click", () => selectTab(el.dataset.goto));
 });
 
-function matrixRow(state, label, detail = "") {
-  // state: ok | bad | warn | run | off
+/**
+ * @param {string} state ok | bad | warn | run | off | skip
+ * @param {string} label
+ * @param {string} detail
+ * @param {{ optional?: boolean }} opts
+ */
+function matrixRow(state, label, detail = "", opts = {}) {
   const icon =
-    state === "ok" ? "✓" : state === "run" ? "…" : state === "warn" ? "!" : state === "off" ? "○" : "✕";
-  return `<li class="mx ${state}">
+    state === "ok"
+      ? "✓"
+      : state === "run"
+        ? "…"
+        : state === "warn"
+          ? "!"
+          : state === "skip" || state === "off"
+            ? "○"
+            : "✕";
+  const cls = [state, opts.optional ? "is-optional" : ""].filter(Boolean).join(" ");
+  return `<li class="mx ${cls}">
     <span class="mx-icon" aria-hidden="true">${icon}</span>
     <span class="mx-label">${escapeHtml(label)}</span>
     ${detail ? `<span class="mx-detail">${escapeHtml(detail)}</span>` : ""}
@@ -114,54 +128,127 @@ function renderMatrices(status) {
         ? "key saved"
         : "no key";
   const authState = authChecking ? "run" : f.connected ? "ok" : f.hasKey ? "warn" : "bad";
-  const autoState = f.automationOk ? "ok" : f.companionOn ? "warn" : "off";
-  const autoDetail = f.automationOk
-    ? "registered"
-    : f.companionOn
-      ? "companion only"
-      : "off";
 
+  // Connect: core only + one optional line
   const connectRows = [
     matrixRow(f.executorReach ? "ok" : "bad", "Reachable", reachDetail),
     matrixRow(authState, "Auth", authDetail),
-    matrixRow(autoState, "Automation", autoDetail),
+    matrixRow(
+      f.automationOk ? "ok" : "skip",
+      "Browser drive",
+      f.automationOk ? "on" : "optional · off",
+      { optional: true },
+    ),
   ].join("");
 
-  const agentRows = [
+  // Agents → Core (required)
+  const coreRows = [
     matrixRow(f.executorReach ? "ok" : "bad", "Executor", reachDetail),
     matrixRow(authState, "API key", authDetail),
-    matrixRow(f.companionOn ? "ok" : "off", "Companion :9230", f.companionOn ? `${f.companion?.ms ?? "?"}ms` : "—"),
     matrixRow(
-      f.automationOk ? "ok" : f.hasEndpoint ? "warn" : "off",
-      "Chrome MCP",
-      f.automationOk ? "registered" : f.hasEndpoint ? "endpoint set" : "—",
+      f.tabs > 0 ? "ok" : "skip",
+      "Agent tabs",
+      f.tabs > 0 ? String(f.tabs) : "none yet",
     ),
-    matrixRow(f.tabs > 0 ? "ok" : "off", "Agent tabs", String(f.tabs)),
+  ].join("");
+
+  // Agents → Browser drive (optional; empty ≠ broken)
+  let companionDetail;
+  let companionState;
+  if (f.companionOn) {
+    companionState = "ok";
+    companionDetail = `${f.companion?.ms ?? "?"}ms · :9230`;
+  } else {
+    companionState = "skip";
+    companionDetail = "optional · not running";
+  }
+
+  // Chrome MCP = companion tools registered on Executor (not Executor's own /mcp)
+  let chromeState;
+  let chromeDetail;
+  if (f.automationOk) {
+    chromeState = "ok";
+    chromeDetail = "registered";
+  } else if (!f.companionOn) {
+    chromeState = "skip";
+    chromeDetail = "needs companion";
+  } else if (f.hasEndpoint) {
+    chromeState = "warn";
+    chromeDetail = "endpoint set · not registered";
+  } else {
+    chromeState = "skip";
+    chromeDetail = "optional · not registered";
+  }
+
+  const driveRows = [
+    matrixRow(companionState, "Companion", companionDetail, { optional: true }),
+    matrixRow(chromeState, "Chrome tools", chromeDetail, { optional: true }),
   ].join("");
 
   const advRows = [
-    matrixRow(f.companionOn ? "ok" : "off", "Companion", f.companionOn ? "healthy" : "not running"),
-    matrixRow(f.hasEndpoint ? "ok" : "off", "Public MCP", f.hasEndpoint ? "set" : "—"),
-    matrixRow(f.automationOk ? "ok" : "off", "Registered", f.automationOk ? "yes" : "no"),
+    matrixRow(
+      f.companionOn ? "ok" : "skip",
+      "Companion",
+      f.companionOn ? "healthy" : "optional · off",
+      { optional: true },
+    ),
+    matrixRow(
+      f.hasEndpoint ? "ok" : "skip",
+      "Public MCP URL",
+      f.hasEndpoint ? "set" : "auto on detect",
+      { optional: true },
+    ),
+    matrixRow(
+      f.automationOk ? "ok" : "skip",
+      "Registered to Executor",
+      f.automationOk ? "yes" : "optional",
+      { optional: true },
+    ),
   ].join("");
 
   if ($("connectMatrix")) $("connectMatrix").innerHTML = connectRows;
-  if ($("agentMatrix")) $("agentMatrix").innerHTML = agentRows;
+  if ($("agentMatrixCore")) $("agentMatrixCore").innerHTML = coreRows;
+  if ($("agentMatrixDrive")) $("agentMatrixDrive").innerHTML = driveRows;
+  // legacy id if present
+  if ($("agentMatrix") && !$("agentMatrixCore")) $("agentMatrix").innerHTML = coreRows + driveRows;
   if ($("advMatrix")) $("advMatrix").innerHTML = advRows;
 
   if ($("useBadge")) {
-    $("useBadge").textContent = f.connected ? (f.automationOk ? "full" : "api") : "setup";
-    $("useBadge").className = f.connected ? "badge" : "badge soft";
+    if (!f.connected) {
+      $("useBadge").textContent = "setup";
+      $("useBadge").className = "badge soft";
+    } else if (f.automationOk) {
+      $("useBadge").textContent = "full";
+      $("useBadge").className = "badge";
+    } else {
+      $("useBadge").textContent = "API only";
+      $("useBadge").className = "badge";
+    }
+  }
+
+  if ($("coreTag")) {
+    $("coreTag").textContent = f.connected && f.executorReach ? "ok" : "required";
+    $("coreTag").className = f.connected && f.executorReach ? "mx-tag ok-tag" : "mx-tag";
+  }
+
+  if ($("driveBlurb")) {
+    if (f.automationOk) {
+      $("driveBlurb").textContent = "Agents can drive this Chrome via registered companion MCP.";
+    } else if (f.companionOn) {
+      $("driveBlurb").textContent =
+        "Companion up. Register under Connect → Advanced so Executor can call Chrome tools.";
+    } else {
+      $("driveBlurb").textContent =
+        "Optional. Local process on :9230 — only if agents should click/type in Chrome. Executor API works without it.";
+    }
   }
 
   if ($("nextHint")) {
-    if (!f.executorReach) $("nextHint").textContent = "Join Tailscale · Detect on Connect.";
-    else if (!f.hasKey) $("nextHint").textContent = "Paste API key on Connect (auto-verifies).";
-    else if (!f.connected) $("nextHint").textContent = "Key present — verifying…";
-    else if (!f.automationOk)
-      $("nextHint").textContent =
-        "API ready. Optional: Advanced → companion for browser drive.";
-    else $("nextHint").textContent = "Ready for agents · copy prompt below.";
+    if (!f.executorReach) $("nextHint").textContent = "Core incomplete: join Tailscale, Detect on Connect.";
+    else if (!f.hasKey) $("nextHint").textContent = "Core incomplete: paste API key on Connect.";
+    else if (!f.connected) $("nextHint").textContent = "Core incomplete: auth failed or still verifying.";
+    else if (f.automationOk) $("nextHint").textContent = "Core + browser drive ready.";
+    else $("nextHint").textContent = "Core ready. Browser drive off by choice — not an error.";
   }
 
   if ($("advSummary")) {
@@ -169,7 +256,7 @@ function renderMatrices(status) {
       ? "on"
       : f.companionOn
         ? "companion up"
-        : "optional";
+        : "optional · off";
   }
 }
 
@@ -695,11 +782,11 @@ function buildAgentPrompt(settings) {
     `Executor MCP: ${mcp}`,
     "Use Executor tools for this session.",
   ];
-  if (publicMcp && (automationOk || settings?.registeredAt)) {
-    lines.push(`Chrome MCP (desktop): ${publicMcp}`);
+  if (publicMcp && (automationOk || settings?.chromeRegistered)) {
+    lines.push(`Chrome tools (desktop companion): ${publicMcp}`);
     lines.push("Prefer take_snapshot. No performance traces.");
   } else {
-    lines.push("Browser drive not registered — API tools only.");
+    lines.push("No Chrome browser-drive — Executor API only (by design unless companion registered).");
   }
   return lines.join("\n");
 }

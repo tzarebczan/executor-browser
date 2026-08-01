@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Executor Browser",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Connect Chrome to Executor over Tailscale with an API key. Optional CDP automation.",
   "minimum_chrome_version": "116",
   "icons": {

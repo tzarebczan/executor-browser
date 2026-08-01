@@ -238,14 +238,33 @@
       </div>
     </section>
 
-    <!-- AGENTS: detection status + short prompt -->
+    <!-- AGENTS: core vs optional + short prompt -->
     <section class="panel" data-panel="more" role="tabpanel" hidden>
       <div class="card">
         <div class="card-head">
           <h2>Status</h2>
-          <span class="badge soft" id="useBadge">live</span>
+          <span class="badge soft" id="useBadge">—</span>
         </div>
-        <ul class="matrix" id="agentMatrix" aria-live="polite"></ul>
+
+        <div class="mx-group">
+          <div class="mx-group-head">
+            <span>Core</span>
+            <span class="mx-tag" id="coreTag">required</span>
+          </div>
+          <ul class="matrix" id="agentMatrixCore" aria-live="polite"></ul>
+        </div>
+
+        <div class="mx-group optional">
+          <div class="mx-group-head">
+            <span>Browser drive</span>
+            <span class="mx-tag optional-tag">optional</span>
+          </div>
+          <p class="mx-blurb" id="driveBlurb">
+            Local companion so agents can click/type in Chrome. Not needed for Executor API tools.
+          </p>
+          <ul class="matrix" id="agentMatrixDrive" aria-live="polite"></ul>
+        </div>
+
         <p class="hint tight" id="nextHint"></p>
       </div>
 
@@ -254,14 +273,11 @@
           <h2>Agent prompt</h2>
           <button type="button" class="link" id="btnCopyAgentPrompt">Copy</button>
         </div>
-        <textarea id="agentPrompt" rows="5" readonly class="prompt-box"></textarea>
-        <div class="actions">
-          <button type="button" class="ghost sm" id="btnGoConnect">Connect</button>
-        </div>
+        <textarea id="agentPrompt" rows="4" readonly class="prompt-box"></textarea>
       </div>
 
       <footer class="inline-foot">
-        <span id="versionLabel">v0.4.0</span>
+        <span id="versionLabel">v0.4.1</span>
       </footer>
     </section>
 
