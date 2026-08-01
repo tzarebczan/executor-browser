@@ -612,7 +612,10 @@ function friendlyCaptureError(err) {
   if (s.includes("chrome://") || s.includes("Cannot access")) {
     return "Can't capture this page type — use a normal http(s) tab.";
   }
-  return s.slice(0, 120) || "Capture failed";
+  if (/invisible|not visible|cannot capture/i.test(s)) {
+    return "Tab not visible — bring the agent Chrome window to front, then Capture.";
+  }
+  return s.slice(0, 140) || "Capture failed";
 }
 
 async function capture({ focus = false } = {}) {

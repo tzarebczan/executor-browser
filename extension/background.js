@@ -169,6 +169,9 @@ async function openAgentTab(url) {
  * Needs host permission <all_urls> (manifest) — activeTab alone is not enough
  * for side-panel auto-refresh without a user gesture.
  *
+ * Chrome throws "view is invisible" when the target window is minimized,
+ * occluded by the side panel focus, or the tab has not painted yet.
+ *
  * @param {{ focus?: boolean }} opts  focus:true steals window focus (user Capture click)
  */
 async function capturePreview(opts = {}) {
@@ -179,14 +182,16 @@ async function capturePreview(opts = {}) {
     agentTabs[0] ||
     null;
 
-  // Side panel steals "last focused window" — prefer a normal browser window.
+  // Side panel steals "last focused window" — prefer a normal browser window
+  // that is actually visible (not minimized / not the side-panel host).
   if (!tab) {
     const normals = await chrome.windows.getAll({
       windowTypes: ["normal"],
       populate: false,
     });
     const preferred =
-      normals.find((w) => w.focused) ||
+      normals.find((w) => w.focused && w.state !== "minimized") ||
+      normals.find((w) => w.state === "normal" || w.state === "maximized") ||
       normals.find((w) => w.state !== "minimized") ||
       normals[0];
     if (preferred?.id != null) {
@@ -223,25 +228,59 @@ async function capturePreview(opts = {}) {
     };
   }
 
-  try {
-    // Capture needs the tab active in its window. Prefer not stealing OS focus
-    // unless the user clicked Capture (focus:true).
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /** Make window/tab paintable for captureVisibleTab. */
+  async function prepareWindow(stealFocus) {
+    try {
+      const win = await chrome.windows.get(tab.windowId);
+      if (win?.state === "minimized" || win?.state === "fullscreen") {
+        // fullscreen can still capture; minimized cannot
+        if (win.state === "minimized") {
+          await chrome.windows.update(tab.windowId, { state: "normal" });
+          await sleep(150);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
     if (tab.id) {
       const winTabs = await chrome.tabs.query({ windowId: tab.windowId, active: true });
       if (!winTabs.length || winTabs[0].id !== tab.id) {
         await chrome.tabs.update(tab.id, { active: true });
-        await new Promise((r) => setTimeout(r, 120));
+        await sleep(160);
       }
     }
-    if (focus) {
+    if (stealFocus) {
       await chrome.windows.update(tab.windowId, { focused: true });
-      await new Promise((r) => setTimeout(r, 80));
+      await sleep(120);
     }
+  }
 
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+  async function snap() {
+    return chrome.tabs.captureVisibleTab(tab.windowId, {
       format: "jpeg",
       quality: 60,
     });
+  }
+
+  try {
+    // Soft capture: don't steal OS focus first. On "view is invisible", restore
+    // window + focus + retry once (side panel often makes the tab "invisible").
+    await prepareWindow(focus);
+    let dataUrl;
+    try {
+      dataUrl = await snap();
+    } catch (first) {
+      const m = String(first?.message || first);
+      if (/invisible|not visible|cannot capture/i.test(m)) {
+        await prepareWindow(true);
+        await sleep(200);
+        dataUrl = await snap();
+      } else {
+        throw first;
+      }
+    }
     return {
       ok: true,
       dataUrl,
@@ -254,6 +293,14 @@ async function capturePreview(opts = {}) {
       return {
         ok: false,
         error: "Reload the extension on chrome://extensions (permissions), then Capture again",
+        tab,
+      };
+    }
+    if (/invisible|not visible|cannot capture/i.test(msg)) {
+      return {
+        ok: false,
+        error:
+          "Tab not visible — un-minimize the Chrome window with the agent tab, click it once, then Capture again",
         tab,
       };
     }
