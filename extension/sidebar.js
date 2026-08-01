@@ -116,18 +116,15 @@ function deriveFlags(status) {
   const companion = status?.companion;
   const executorReach = Boolean(executor?.ok);
   const hasKey = Boolean(settings.hasApiKey);
-  const registeredAt = Boolean(settings.registeredAt);
   const companionOn = Boolean(companion?.ok);
   const hasEndpoint = Boolean(settings.publicEndpoint || $("publicEndpoint")?.value?.trim());
-  // session auth wins; fall back to registeredAt if we verified before
-  const connected = authOk || (registeredAt && hasKey && executorReach);
+  const connected = authOk;
   const driveMode = status?.driveMode || settings.driveMode || "reverse";
   const reverse = status?.reverse || {};
   const native = status?.native || {};
   const driveReady = Boolean(status?.driveReady);
   // extension reverse tools ready even if server bridge API not yet deployed
-  const reverseReady =
-    reverse.mode === "reverse" || reverse.mode === "local-ready" || reverse.running;
+  const reverseReady = reverse.mode === "reverse" && reverse.running;
   return {
     settings,
     executor,
@@ -250,9 +247,6 @@ function renderConnectState(f) {
       if (f.reverse?.mode === "reverse") {
         $("connectDriveBlurb").textContent =
           "Path B active — extension reverse session with Executor. No local script.";
-      } else if (f.reverse?.mode === "local-ready") {
-        $("connectDriveBlurb").textContent =
-          "Path B tools ready in extension. Executor browser-bridge API not deployed yet — local/external tool calls work; remote tools.chrome.* needs server route.";
       } else if (f.connected) {
         $("connectDriveBlurb").textContent =
           "Path B (default): extension reverse channel after connect. No companion script.";
@@ -305,9 +299,6 @@ function renderMatrices(status) {
     if (f.reverse?.mode === "reverse") {
       driveState = "ok";
       drivePill = "session live";
-    } else if (f.reverse?.mode === "local-ready") {
-      driveState = "warn";
-      drivePill = "tools ready · server TBD";
     } else if (f.connected) {
       driveState = "warn";
       drivePill = "starting…";
@@ -347,15 +338,13 @@ function renderMatrices(status) {
   const revMode = f.reverse?.mode || "idle";
   const driveRows = [
     matrixRow(
-      f.driveMode === "reverse" && (revMode === "reverse" || revMode === "local-ready")
-        ? revMode === "reverse"
-          ? "ok"
-          : "warn"
+      f.driveMode === "reverse" && revMode === "reverse"
+        ? "ok"
         : f.driveMode === "reverse"
           ? "skip"
           : "skip",
       "B · Reverse",
-      revMode === "reverse" ? "session" : revMode === "local-ready" ? "tools ready" : revMode,
+      revMode === "reverse" ? "session" : revMode,
     ),
     matrixRow(
       f.native?.connected ? "ok" : "skip",
@@ -420,9 +409,6 @@ function renderMatrices(status) {
   if ($("driveBlurb")) {
     if (f.driveMode === "reverse" && revMode === "reverse") {
       $("driveBlurb").textContent = "Path B reverse session live — agents can drive via Executor bridge.";
-    } else if (f.driveMode === "reverse" && revMode === "local-ready") {
-      $("driveBlurb").textContent =
-        "Extension tools ready (B). Wire Executor /api/browser-bridge for remote tools.chrome.*.";
     } else if (f.native?.connected) {
       $("driveBlurb").textContent = "Path C native host connected.";
     } else {
@@ -436,8 +422,6 @@ function renderMatrices(status) {
     else if (!f.hasKey) $("nextHint").textContent = "Not connected: paste API key.";
     else if (!f.connected) $("nextHint").textContent = "Not connected: auth failed or verifying.";
     else if (revMode === "reverse") $("nextHint").textContent = "Connected + reverse browser bridge.";
-    else if (revMode === "local-ready")
-      $("nextHint").textContent = "Connected. Extension tools ready; Executor bridge API pending.";
     else $("nextHint").textContent = "Connected to Executor.";
   }
 
@@ -525,8 +509,6 @@ async function refresh() {
   const rev = status.reverse || {};
   if (status.driveReady || rev.mode === "reverse") {
     setStat($("companionStat"), driveMode === "reverse" ? "live" : "on", "ok");
-  } else if (rev.mode === "local-ready") {
-    setStat($("companionStat"), "ready", "warn");
   } else if (status.native?.connected) {
     setStat($("companionStat"), "C", "ok");
   } else if (companion?.ok) {
@@ -592,11 +574,6 @@ async function refresh() {
       </li>`,
       )
       .join("");
-  }
-
-  // If we previously registered and still have key + reach, treat as connected
-  if (settings.registeredAt && settings.hasApiKey && executorOk && !authOk && !authChecking) {
-    authOk = true;
   }
 
   renderSetup(status);
@@ -1099,15 +1076,13 @@ function buildAgentPrompt(settings) {
   const nativeOn = Boolean(lastStatus?.native?.connected);
   const companionReg = Boolean(s.chromeRegistered && publicMcp);
 
-  if (driveMode === "reverse" && (rev.mode === "reverse" || rev.mode === "local-ready")) {
+  if (driveMode === "reverse" && rev.mode === "reverse") {
     return [
       "Executor CONNECTED. Browser drive path B (extension reverse) is enabled.",
       "",
       `Executor MCP: ${mcp}`,
       "Chrome tools: extension-native (tabs, navigate, snapshot, click, type, screenshot).",
-      rev.mode === "reverse"
-        ? "Reverse bridge session is live — use tools.chrome.user.desktop when Executor routes to this session."
-        : "Extension tools are ready; if tools.chrome.* is missing server-side, say the browser-bridge API is not wired yet.",
+      "Reverse bridge session is live; use tools.browser.user.desktop when Executor routes to this session.",
       "",
       "How to use:",
       "- Prefer snapshot (a11y-ish) over screenshots.",
@@ -1192,9 +1167,7 @@ $("btnStartDrive")?.addEventListener("click", async () => {
     toast(
       r?.mode === "reverse"
         ? "Reverse session live"
-        : r?.mode === "local-ready"
-          ? "Tools ready (server bridge TBD)"
-          : r?.lastError || "Bridge started",
+        : r?.lastError || "Bridge failed",
       r?.mode === "error" ? "bad" : "ok",
     );
   }

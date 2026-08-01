@@ -26,16 +26,9 @@ Details: `docs/BRIDGE-MODES.md`
 
 ## Install (unpacked)
 
-1. Start companion (from your monorepo / lab scripts):
-
-   ```powershell
-   # example — tbd lab
-   powershell -ExecutionPolicy Bypass -File path\to\Start-CompanionHidden.ps1
-   ```
-
-2. Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked**
-3. Select the `extension/` folder in this repo
-4. Pin **Executor Browser** — the **side panel** opens on click
+1. Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked**
+2. Select the `extension/` folder in this repo
+3. Pin **Executor Browser** — the **side panel** opens on click
 
 ## Connect (default — no companion)
 
@@ -48,17 +41,21 @@ Users should **not** need a companion app to pair with Executor.
 
 Stored only in `chrome.storage.local` for this browser profile.
 
-### Optional: browser automation (agents drive Chrome)
+### Browser automation (agents drive Chrome)
 
-This is what the **public MCP URL** is for — not for basic connect.
+The default reverse bridge exposes `tools.browser.user.desktop` without an inbound
+port or companion process. Only tabs in the extension-owned Executor group are
+visible to these tools.
 
 | Piece | Role |
 |-------|------|
 | **API key connect** | Extension → Executor (outbound HTTPS). Pairing, tools, status. |
-| **MCP endpoint** (`http://100.x:9230/mcp`) | Executor → your PC so agents can **control** the browser (CDP). |
-| **Remote debugging** | How a companion attaches to your real Chrome profile. |
+| **Reverse bridge** | Executor queues extension-native browser jobs over authenticated HTTPS. |
+| **MCP endpoint** (`http://100.x:9230/mcp`) | Optional legacy companion for full CDP. |
+| **Remote debugging** | Optional companion/native-host attachment to Chrome. |
 
-Without the MCP endpoint, agents cannot click/type/snapshot this Chrome remotely. With only the API key, you still get pairing, tab groups, and live preview.
+With the API key and a live reverse session, agents can navigate, snapshot, click,
+type, and capture screenshots in the owned tab group.
 
 Lab self-host for optional automation:
 

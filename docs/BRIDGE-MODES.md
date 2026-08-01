@@ -14,7 +14,7 @@ asking them to run `node start-companion.mjs` every session.
 ## B — Extension reverse (primary)
 
 ```text
-Lab agents → Executor tools.chrome.user.desktop
+Lab agents → Executor tools.browser.user.desktop
                  ▲
                  │  long-poll / WS jobs + results
                  │
@@ -28,7 +28,7 @@ Lab agents → Executor tools.chrome.user.desktop
 - No inbound port, no firewall rule, no Node script.
 - Tool surface lives in `extension/lib/browser-tools.js`.
 
-### Executor API (to implement / wire)
+### Executor API
 
 ```http
 POST /api/browser-bridge/session
@@ -43,8 +43,8 @@ POST /api/browser-bridge/session/:id/result
 { "jobId", "result" }
 ```
 
-Until that API exists, the extension reports **local-ready**: tools work via
-extension messages / product web; remote `tools.chrome.*` waits on server routing.
+The extension reports ready only after the authenticated reverse session is live.
+Web pages cannot pair with the extension or invoke browser tools directly.
 
 ## C — Native host (Advanced)
 
@@ -76,7 +76,8 @@ Use C when you need full CDP (performance, multi-target, chrome-devtools MCP).
 Separate from B/C:
 
 ```text
-tools.chrome.*    → B or C
+tools.browser.*   → B
+tools.chrome.*    → C or the legacy companion
 tools.computer.*  → CUA driver / sandbox (optional later)
 ```
 
