@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Executor Browser — Options</title>
+    <link rel="stylesheet" href="sidebar.css" />
+  </head>
+  <body style="max-width: 520px; margin: 28px auto">
+    <h1>Options</h1>
+    <p class="help">
+      Defaults target a local companion on port 9230. For Tailscale remote Executor,
+      set the public MCP URL in the side panel to <code>http://&lt;tailscale-ip&gt;:9230/mcp</code>
+      and enable <code>EXECUTOR_ALLOW_LOCAL_NETWORK=true</code> on self-host.
+    </p>
+    <label class="field"
+      >Companion health URL
+      <input id="health" type="url" />
+    </label>
+    <label class="field"
+      >Companion MCP URL
+      <input id="mcp" type="url" />
+    </label>
+    <label class="field"
+      >Tab group title
+      <input id="groupTitle" type="text" />
+    </label>
+    <div class="actions">
+      <button id="save" class="primary" type="button">Save</button>
+    </div>
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

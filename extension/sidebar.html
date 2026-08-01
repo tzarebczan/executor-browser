@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Executor Browser</title>
+    <link rel="stylesheet" href="sidebar.css" />
+  </head>
+  <body>
+    <div class="bg-glow" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
+
+    <header class="top">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <span class="logo-ring"></span>
+          <span class="logo-core"></span>
+        </div>
+        <div>
+          <h1>Executor Browser</h1>
+          <p class="tag">Agents see what you see</p>
+        </div>
+      </div>
+      <div class="live-dot" id="liveDot" title="Companion status"></div>
+    </header>
+
+    <!-- Live preview -->
+    <section class="preview-card">
+      <div class="preview-chrome">
+        <div class="traffic">
+          <i></i><i></i><i></i>
+        </div>
+        <div class="urlbar" id="previewUrl">waiting for preview…</div>
+      </div>
+      <div class="preview-stage" id="previewStage">
+        <div class="preview-empty" id="previewEmpty">
+          <div class="pulse-orb"></div>
+          <p>Live view of the agent tab</p>
+          <span>Capture a frame or open a tab in the Executor group</span>
+        </div>
+        <img id="previewImg" alt="Tab preview" hidden />
+        <div class="scanline" aria-hidden="true"></div>
+      </div>
+      <div class="preview-meta">
+        <span id="previewTitle">—</span>
+        <button type="button" class="ghost sm" id="btnCapture">Capture</button>
+      </div>
+    </section>
+
+    <!-- Status strip -->
+    <section class="status-strip">
+      <div class="stat">
+        <span class="stat-label">Companion</span>
+        <span class="stat-value" id="companionStat">…</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">MCP</span>
+        <span class="stat-value" id="mcpStat">…</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Agent tabs</span>
+        <span class="stat-value" id="tabStat">0</span>
+      </div>
+    </section>
+
+    <!-- Connect -->
+    <section class="card">
+      <div class="card-head">
+        <h2>Connect</h2>
+        <span class="badge">Tailscale · lab</span>
+      </div>
+      <p class="help">
+        Companion exposes MCP on <code>127.0.0.1:9230</code>. With
+        <code>EXECUTOR_ALLOW_LOCAL_NETWORK</code>, register your Tailscale IP.
+      </p>
+      <label class="field">
+        Executor base URL
+        <input id="executorUrl" type="url" placeholder="https://lab-agents….ts.net:8444" />
+      </label>
+      <label class="field">
+        Executor API key
+        <input id="executorApiKey" type="password" placeholder="Bearer token" autocomplete="off" />
+      </label>
+      <label class="field">
+        Public MCP URL for Executor
+        <input
+          id="publicEndpoint"
+          type="url"
+          placeholder="http://100.x.x.x:9230/mcp"
+        />
+      </label>
+      <div class="actions">
+        <button type="button" class="primary" id="btnRegister">
+          <span class="btn-label">Register with Executor</span>
+          <span class="btn-shine" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="ghost" id="btnRefresh">Refresh</button>
+      </div>
+      <p class="hint" id="connectHint"></p>
+    </section>
+
+    <!-- Modes -->
+    <section class="card">
+      <h2>Browser mode</h2>
+      <label class="radio">
+        <input type="radio" name="mode" value="existing" checked />
+        <span>
+          <strong>Existing Chrome</strong>
+          <small>Remote debugging · keep logins</small>
+        </span>
+      </label>
+      <label class="radio">
+        <input type="radio" name="mode" value="fresh" />
+        <span>
+          <strong>Fresh profile</strong>
+          <small>Isolated agent window (companion)</small>
+        </span>
+      </label>
+      <label class="radio">
+        <input type="radio" name="mode" value="extension-only" />
+        <span>
+          <strong>Extension-only</strong>
+          <small>Tab groups + preview · no CDP</small>
+        </span>
+      </label>
+      <div class="actions">
+        <button type="button" class="primary" id="btnOpenTab">Open agent tab</button>
+        <button type="button" class="ghost" id="btnDebug">Remote debugging tip</button>
+      </div>
+    </section>
+
+    <!-- Agent tabs -->
+    <section class="card">
+      <div class="card-head">
+        <h2>Agent tab group</h2>
+        <span class="badge soft" id="groupBadge">Executor</span>
+      </div>
+      <ul class="tab-list" id="tabList">
+        <li class="empty">No tabs in group yet</li>
+      </ul>
+    </section>
+
+    <!-- Activity feed -->
+    <section class="card">
+      <div class="card-head">
+        <h2>Activity</h2>
+        <button type="button" class="link" id="btnClearActivity">Clear</button>
+      </div>
+      <ul class="activity" id="activityList">
+        <li class="empty">Actions will show up here</li>
+      </ul>
+    </section>
+
+    <footer>
+      <span>v0.1.0</span>
+      <a href="options.html" target="_blank">Options</a>
+    </footer>
+
+    <script src="sidebar.js" type="module"></script>
+  </body>
+</html>
