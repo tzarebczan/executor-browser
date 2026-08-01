@@ -320,7 +320,7 @@ async function verifyExecutorAuth() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.5.0" },
+          clientInfo: { name: "executor-browser", version: "0.6.0" },
         },
       }),
     });

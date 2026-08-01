@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Executor Browser</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
@@ -12,10 +18,10 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Executor</h1>
-          <p class="tag" id="headerStatus">Connecting…</p>
+          <p class="tag mono" id="headerStatus">Connecting…</p>
         </div>
       </div>
-      <button type="button" class="icon-btn" id="btnRefresh" title="Refresh">↻</button>
+      <button type="button" class="icon-btn" id="btnRefresh" title="Refresh" aria-label="Refresh">↻</button>
     </header>
 
     <section class="setup-banner" id="setupBanner" hidden>
@@ -37,38 +43,49 @@
 
     <!-- HOME -->
     <section class="panel active" data-panel="home" role="tabpanel">
+      <div class="signal-rail" id="statusStrip" aria-label="Status">
+        <button type="button" class="signal" data-goto="connect" id="statExecutor" title="Executor">
+          <span class="led" id="executorLed" aria-hidden="true"></span>
+          <span class="sig-k">Executor</span>
+          <span class="sig-v mono" id="executorStat">…</span>
+        </button>
+        <button type="button" class="signal" data-goto="connect" id="statCompanion" title="Browser drive">
+          <span class="led" id="companionLed" aria-hidden="true"></span>
+          <span class="sig-k">Reverse</span>
+          <span class="sig-v mono" id="companionStat">—</span>
+        </button>
+        <button type="button" class="signal" data-goto="tabs" id="statTabs" title="Agent tabs">
+          <span class="led" id="tabsLed" aria-hidden="true"></span>
+          <span class="sig-k">Tabs</span>
+          <span class="sig-v mono" id="tabStat">0</span>
+        </button>
+      </div>
+
       <div class="preview-card">
         <div class="preview-chrome">
           <span class="urlbar" id="previewUrl">No preview yet</span>
-          <button type="button" class="ghost sm" id="btnCapture">Capture</button>
+          <button
+            type="button"
+            class="ghost xs"
+            id="btnCapture"
+            title="Local JPEG preview of the agent tab — not sent to Executor"
+          >
+            Capture
+          </button>
         </div>
         <div class="preview-stage" id="previewStage">
           <div class="preview-empty" id="previewEmpty">
-            <p id="previewEmptyTitle">No live frame</p>
-            <span id="previewEmptyHint">Open an agent tab, then Capture.</span>
+            <p id="previewEmptyTitle">Local preview</p>
+            <span id="previewEmptyHint">JPEG of agent tab · not sent to Executor. Open a tab, then Capture.</span>
             <button type="button" class="primary sm" id="btnOpenTabHome">Open agent tab</button>
           </div>
-          <img id="previewImg" alt="" hidden />
+          <img id="previewImg" alt="Local tab preview" hidden />
         </div>
         <div class="preview-meta">
           <span id="previewTitle">—</span>
+          <span class="preview-local" id="previewLocalTag">local only</span>
           <span class="meta-right" id="previewError" hidden></span>
         </div>
-      </div>
-
-      <div class="status-strip">
-        <button type="button" class="stat" data-goto="connect" id="statExecutor">
-          <span class="stat-label">Executor</span>
-          <span class="stat-value" id="executorStat">…</span>
-        </button>
-        <button type="button" class="stat" data-goto="connect" id="statCompanion">
-          <span class="stat-label">Automation</span>
-          <span class="stat-value" id="companionStat">—</span>
-        </button>
-        <button type="button" class="stat" data-goto="tabs">
-          <span class="stat-label">Agent tabs</span>
-          <span class="stat-value" id="tabStat">0</span>
-        </button>
       </div>
 
       <div class="card compact">
@@ -314,10 +331,10 @@
         <div class="mx-group optional">
           <div class="mx-group-head">
             <span>Browser drive</span>
-            <span class="mx-tag optional-tag">optional</span>
+            <span class="mx-tag optional-tag">path B</span>
           </div>
           <p class="mx-blurb" id="driveBlurb">
-            Local companion so agents can click/type in Chrome. Not needed for Executor API tools.
+            Extension reverse channel. Agents use tools.browser.user.desktop — not the Capture button.
           </p>
           <ul class="matrix" id="agentMatrixDrive" aria-live="polite"></ul>
         </div>
@@ -334,7 +351,7 @@
       </div>
 
       <footer class="inline-foot">
-        <span id="versionLabel">v0.5.0</span>
+        <span id="versionLabel">v0.6.0</span>
       </footer>
     </section>
 

@@ -1,19 +1,33 @@
+/* Executor Browser — v0.6 UI (ops signal, IBM Plex, dense panel) */
 :root {
   color-scheme: dark;
-  --bg: #111318;
-  --card: #1a1d24;
-  --elevated: #22262f;
-  --text: #e8eaed;
-  --muted: #9aa0a6;
-  --accent: #8ab4f8;
-  --accent-text: #0b0d12;
-  --ok: #81c995;
-  --bad: #f28b82;
-  --warn: #fdd663;
-  --border: #2d323c;
-  --radius: 10px;
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
-  font-family: var(--font);
+  --void: #0c0e12;
+  --panel: #141820;
+  --lift: #1c222d;
+  --line: #2a3140;
+  --ink: #e8ecf1;
+  --dim: #8b95a8;
+  --signal: #5b9fd4;
+  --signal-ink: #071018;
+  --live: #3dcf8e;
+  --warn: #e0b44a;
+  --fault: #e8726a;
+  --radius: 8px;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  /* aliases for older class hooks */
+  --bg: var(--void);
+  --card: var(--panel);
+  --elevated: var(--lift);
+  --text: var(--ink);
+  --muted: var(--dim);
+  --accent: var(--signal);
+  --accent-text: var(--signal-ink);
+  --ok: var(--live);
+  --bad: var(--fault);
+  --border: var(--line);
+  --font: var(--sans);
+  font-family: var(--sans);
 }
 
 * {
@@ -24,10 +38,14 @@ body {
   margin: 0;
   min-height: 100vh;
   padding: 12px;
-  color: var(--text);
-  background: var(--bg);
+  color: var(--ink);
+  background: var(--void);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.mono {
+  font-family: var(--mono);
 }
 
 /* Header */
@@ -47,8 +65,9 @@ body {
 .logo {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
-  background: var(--accent);
+  border-radius: 7px;
+  background: linear-gradient(145deg, var(--signal), #3a6f9a);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--signal) 40%, transparent);
   flex-shrink: 0;
 }
 
@@ -61,30 +80,31 @@ h1 {
 
 .tag {
   margin: 0;
-  color: var(--muted);
+  color: var(--dim);
   font-size: 11px;
+  font-family: var(--mono);
 }
 
 .icon-btn {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
-  font-size: 16px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--lift);
+  color: var(--ink);
+  font-size: 15px;
   cursor: pointer;
   line-height: 1;
 }
 
 .icon-btn:hover {
-  background: var(--elevated);
+  border-color: color-mix(in srgb, var(--signal) 40%, var(--line));
 }
 
 /* Setup banner */
 .setup-banner {
-  background: var(--card);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 10px;
   margin-bottom: 10px;
@@ -108,8 +128,8 @@ h1 {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--elevated);
-  color: var(--muted);
+  background: var(--lift);
+  color: var(--dim);
   font-size: 10px;
   font-weight: 600;
   display: grid;
@@ -118,13 +138,13 @@ h1 {
 }
 
 .setup-step.done .n {
-  background: color-mix(in srgb, var(--ok) 30%, transparent);
-  color: var(--ok);
+  background: color-mix(in srgb, var(--live) 30%, transparent);
+  color: var(--live);
 }
 
 .setup-step.todo .n {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--signal) 25%, transparent);
+  color: var(--signal);
 }
 
 .quick-row {
@@ -133,14 +153,117 @@ h1 {
   gap: 6px;
 }
 
+/* Signal rail — one-glance status (signature) */
+.signal-rail {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.signal {
+  border: 0;
+  background: var(--void);
+  color: inherit;
+  font: inherit;
+  padding: 8px 8px 7px;
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
+  cursor: pointer;
+  text-align: left;
+}
+
+.signal:hover {
+  background: color-mix(in srgb, var(--lift) 70%, var(--void));
+}
+
+.led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dim);
+  grid-row: 1 / span 2;
+}
+
+.led.live {
+  background: var(--live);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 25%, transparent);
+}
+
+.led.warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
+.led.fault {
+  background: var(--fault);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fault) 25%, transparent);
+}
+
+.led.lg {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  grid-row: auto;
+}
+
+.sig-k {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.sig-v {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  font-family: var(--mono);
+}
+
+.sig-v.ok {
+  color: var(--live);
+}
+.sig-v.bad {
+  color: var(--fault);
+}
+.sig-v.warn {
+  color: var(--warn);
+}
+
+/* legacy stat-value class still applied by setStat */
+.stat-value {
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--mono);
+}
+.stat-value.ok {
+  color: var(--live);
+}
+.stat-value.bad {
+  color: var(--fault);
+}
+.stat-value.warn {
+  color: var(--warn);
+}
+
 /* Tabs */
 .tabs {
   display: flex;
   gap: 2px;
   margin-bottom: 10px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  background: var(--void);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   padding: 3px;
 }
 
@@ -148,11 +271,11 @@ h1 {
   flex: 1;
   border: 0;
   background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 550;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
   padding: 7px 4px;
-  border-radius: 7px;
+  border-radius: 6px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -161,18 +284,19 @@ h1 {
 }
 
 .tab:hover {
-  color: var(--text);
+  color: var(--ink);
 }
 
 .tab.active {
-  background: var(--elevated);
-  color: var(--text);
+  background: var(--lift);
+  color: var(--ink);
 }
 
 .tab-count {
   font-size: 10px;
-  background: var(--bg);
-  color: var(--muted);
+  font-family: var(--mono);
+  background: var(--void);
+  color: var(--dim);
   border-radius: 999px;
   min-width: 16px;
   padding: 0 5px;
@@ -180,8 +304,8 @@ h1 {
 }
 
 .tab.active .tab-count {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--signal) 20%, transparent);
+  color: var(--signal);
 }
 
 .panel[hidden] {
@@ -190,8 +314,8 @@ h1 {
 
 /* Preview */
 .preview-card {
-  background: var(--card);
-  border: 1px solid var(--border);
+  background: var(--void);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
   margin-bottom: 10px;
@@ -201,18 +325,19 @@ h1 {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px;
-  background: var(--elevated);
-  border-bottom: 1px solid var(--border);
+  padding: 7px 8px;
+  background: var(--lift);
+  border-bottom: 1px solid var(--line);
 }
 
 .urlbar {
   flex: 1;
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--bg);
-  border-radius: 6px;
-  padding: 5px 8px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--dim);
+  background: var(--void);
+  border-radius: 5px;
+  padding: 4px 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -222,7 +347,7 @@ h1 {
 .preview-stage {
   position: relative;
   aspect-ratio: 16 / 10;
-  background: #0a0b0e;
+  background: #080a0d;
   overflow: hidden;
 }
 
@@ -241,21 +366,22 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  color: var(--muted);
+  color: var(--dim);
   text-align: center;
   padding: 16px;
 }
 
 .preview-empty p {
   margin: 0;
-  color: var(--text);
+  color: var(--ink);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .preview-empty span {
   font-size: 11px;
   max-width: 220px;
+  line-height: 1.35;
 }
 
 .preview-meta {
@@ -263,10 +389,10 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 6px 10px;
   font-size: 11px;
-  color: var(--muted);
-  border-top: 1px solid var(--border);
+  color: var(--dim);
+  border-top: 1px solid var(--line);
 }
 
 .preview-meta span {
@@ -276,62 +402,20 @@ h1 {
 }
 
 .meta-right {
-  color: var(--bad) !important;
+  color: var(--fault) !important;
   max-width: 55%;
 }
 
-/* Status strip */
-.status-strip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.stat {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 6px;
-  text-align: center;
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
-}
-
-.stat:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-}
-
-.stat-label {
-  display: block;
+.preview-local {
+  font-family: var(--mono);
   font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.stat-value {
-  display: block;
-  margin-top: 2px;
-  font-weight: 650;
-  font-size: 12px;
-}
-
-.stat-value.ok {
-  color: var(--ok);
-}
-.stat-value.bad {
-  color: var(--bad);
-}
-.stat-value.warn {
-  color: var(--warn);
+  color: var(--dim);
 }
 
 /* Cards */
 .card {
-  background: var(--card);
-  border: 1px solid var(--border);
+  background: var(--void);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 12px;
   margin-bottom: 10px;
@@ -350,11 +434,11 @@ h1 {
 
 .card h2 {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  letter-spacing: 0.06em;
+  color: var(--dim);
 }
 
 .card-head h2 {
@@ -362,22 +446,24 @@ h1 {
 }
 
 .badge {
-  font-size: 10px;
-  padding: 2px 8px;
+  font-size: 9px;
+  padding: 2px 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
-  font-weight: 600;
+  background: color-mix(in srgb, var(--signal) 15%, transparent);
+  color: var(--signal);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .badge.soft {
-  background: var(--elevated);
-  color: var(--muted);
+  background: var(--lift);
+  color: var(--dim);
 }
 
 .help,
 .hint {
-  color: var(--muted);
+  color: var(--dim);
   font-size: 11px;
   margin: 0 0 10px;
 }
@@ -391,13 +477,14 @@ h1 {
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--dim);
   font-weight: 400;
 }
 
 code {
   font-size: 10px;
-  background: var(--bg);
+  font-family: var(--mono);
+  background: var(--panel);
   padding: 1px 4px;
   border-radius: 4px;
 }
@@ -408,7 +495,7 @@ code {
   gap: 4px;
   margin-bottom: 8px;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--dim);
 }
 
 .field-row {
@@ -439,8 +526,8 @@ code {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--elevated);
-  color: var(--accent);
+  background: var(--lift);
+  color: var(--signal);
   font-size: 11px;
   font-weight: 700;
   display: grid;
@@ -458,15 +545,15 @@ code {
 pre.cmd {
   margin: 6px 0;
   padding: 8px 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 8px;
   font-size: 10px;
   line-height: 1.35;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--text);
-  font-family: ui-monospace, Consolas, monospace;
+  color: var(--ink);
+  font-family: var(--mono);
 }
 
 /* Detection status matrix */
@@ -483,11 +570,11 @@ pre.cmd {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 650;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  letter-spacing: 0.05em;
+  color: var(--dim);
 }
 
 .mx-tag {
@@ -497,33 +584,33 @@ pre.cmd {
   text-transform: uppercase;
   padding: 2px 6px;
   border-radius: 999px;
-  background: var(--elevated);
-  color: var(--muted);
+  background: var(--lift);
+  color: var(--dim);
 }
 
 .mx-tag.ok-tag {
-  background: color-mix(in srgb, var(--ok) 18%, transparent);
-  color: var(--ok);
+  background: color-mix(in srgb, var(--live) 15%, transparent);
+  color: var(--live);
 }
 
 .mx-tag.optional-tag {
   background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
+  border: 1px solid var(--line);
+  color: var(--dim);
 }
 
 .mx-group.optional {
   padding: 8px;
   border-radius: 9px;
-  border: 1px dashed var(--border);
-  background: color-mix(in srgb, var(--card) 60%, var(--bg));
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--panel) 50%, var(--void));
 }
 
 .mx-blurb {
   margin: 0 0 8px;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--muted);
+  color: var(--dim);
 }
 
 .matrix {
@@ -552,8 +639,8 @@ pre.cmd {
   font-size: 12px;
   padding: 7px 8px;
   border-radius: 7px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--line);
   min-width: 0;
 }
 
@@ -570,25 +657,25 @@ pre.cmd {
   font-size: 11px;
   font-weight: 700;
   text-align: center;
-  color: var(--muted);
+  color: var(--dim);
   flex-shrink: 0;
 }
 
 .mx.ok .mx-icon {
-  color: var(--ok);
+  color: var(--live);
 }
 .mx.bad .mx-icon {
-  color: var(--bad);
+  color: var(--fault);
 }
 .mx.warn .mx-icon {
   color: var(--warn);
 }
 .mx.run .mx-icon {
-  color: var(--accent);
+  color: var(--signal);
 }
 .mx.off .mx-icon,
 .mx.skip .mx-icon {
-  color: color-mix(in srgb, var(--muted) 70%, transparent);
+  color: color-mix(in srgb, var(--dim) 70%, transparent);
 }
 
 .mx.skip,
@@ -598,66 +685,66 @@ pre.cmd {
 }
 
 .mx.bad {
-  border-color: color-mix(in srgb, var(--bad) 35%, var(--border));
+  border-color: color-mix(in srgb, var(--fault) 35%, var(--line));
 }
 
 .mx-label {
-  color: var(--text);
+  color: var(--ink);
   font-weight: 550;
   min-width: 0;
   word-break: break-word;
 }
 
 .mx.skip .mx-label {
-  color: var(--muted);
+  color: var(--dim);
   font-weight: 500;
 }
 
-/* Status pill — full text, wraps if needed; never mid-clip */
 .mx-pill {
   flex: 0 1 auto;
   max-width: 100%;
   font-size: 10px;
   font-weight: 600;
+  font-family: var(--mono);
   line-height: 1.25;
   padding: 3px 8px;
   border-radius: 999px;
-  color: var(--muted);
-  background: var(--elevated);
+  color: var(--dim);
+  background: var(--lift);
   white-space: normal;
   text-align: right;
   word-break: break-word;
 }
 
 .mx-pill.ok {
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--live);
+  background: color-mix(in srgb, var(--live) 12%, transparent);
 }
 .mx-pill.bad {
-  color: var(--bad);
-  background: color-mix(in srgb, var(--bad) 14%, transparent);
+  color: var(--fault);
+  background: color-mix(in srgb, var(--fault) 12%, transparent);
 }
 .mx-pill.warn {
   color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 .mx-pill.run {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 12%, transparent);
 }
 .mx-pill.skip,
 .mx-pill.off {
-  color: var(--muted);
+  color: var(--dim);
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
 }
 
 .connect-opt {
   margin: 0 0 12px;
-  padding: 8px;
+  padding: 10px;
   border-radius: 9px;
-  border: 1px dashed var(--border);
-  background: color-mix(in srgb, var(--card) 60%, var(--bg));
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--panel) 50%, var(--void));
 }
 
 .connect-opt .mx-group-head {
@@ -666,11 +753,11 @@ pre.cmd {
 
 /* Connect tab status */
 .tab-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 25%, transparent);
+  background: var(--live);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 25%, transparent);
   flex-shrink: 0;
 }
 
@@ -680,8 +767,8 @@ pre.cmd {
 }
 
 .tab-dot.bad {
-  background: var(--bad);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 25%, transparent);
+  background: var(--fault);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fault) 25%, transparent);
 }
 
 .conn-banner {
@@ -689,10 +776,10 @@ pre.cmd {
   gap: 10px;
   align-items: flex-start;
   padding: 10px 12px;
-  border-radius: 9px;
+  border-radius: 8px;
   margin-bottom: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg);
+  border: 1px solid var(--line);
+  background: var(--panel);
 }
 
 .conn-dot {
@@ -701,36 +788,36 @@ pre.cmd {
   border-radius: 50%;
   margin-top: 4px;
   flex-shrink: 0;
-  background: var(--muted);
+  background: var(--dim);
 }
 
 .conn-banner[data-state="ok"] {
-  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
-  background: color-mix(in srgb, var(--ok) 10%, var(--bg));
+  border-color: color-mix(in srgb, var(--live) 40%, var(--line));
+  background: color-mix(in srgb, var(--live) 8%, var(--void));
 }
 .conn-banner[data-state="ok"] .conn-dot {
-  background: var(--ok);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+  background: var(--live);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--live) 22%, transparent);
 }
 .conn-banner[data-state="ok"] .conn-copy strong {
-  color: var(--ok);
+  color: var(--live);
 }
 
 .conn-banner[data-state="run"] .conn-dot {
-  background: var(--accent);
+  background: var(--signal);
   animation: pulse 1.2s ease-in-out infinite;
 }
 .conn-banner[data-state="warn"] {
-  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
 }
 .conn-banner[data-state="warn"] .conn-dot {
   background: var(--warn);
 }
 .conn-banner[data-state="bad"] {
-  border-color: color-mix(in srgb, var(--bad) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--fault) 40%, var(--line));
 }
 .conn-banner[data-state="bad"] .conn-dot {
-  background: var(--bad);
+  background: var(--fault);
 }
 
 .conn-copy {
@@ -745,7 +832,8 @@ pre.cmd {
 }
 .conn-sub {
   font-size: 11px;
-  color: var(--muted);
+  font-family: var(--mono);
+  color: var(--dim);
   word-break: break-all;
 }
 
@@ -777,36 +865,37 @@ details.adv.below-fold summary {
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  color: var(--text);
+  color: var(--ink);
 }
 
 .prompt-box {
   width: 100%;
   resize: vertical;
   min-height: 72px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
   padding: 8px 10px;
-  font-size: 11px;
-  font-family: ui-monospace, Consolas, monospace;
-  line-height: 1.4;
+  font-size: 10px;
+  font-family: var(--mono);
+  line-height: 1.45;
 }
 
 input[type="text"],
 input[type="url"],
 input[type="password"] {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
   padding: 9px 10px;
   font-size: 12px;
+  font-family: var(--sans);
 }
 
 input:focus {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--signal);
   border-color: transparent;
 }
 
@@ -828,7 +917,7 @@ input:focus {
 button,
 .btn-link {
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 9px 12px;
   font-size: 12px;
   cursor: pointer;
@@ -837,18 +926,19 @@ button,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--sans);
 }
 
 button.primary {
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--signal);
+  color: var(--signal-ink);
 }
 
 button.ghost,
 a.ghost {
   background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
+  color: var(--ink);
+  border: 1px solid var(--line);
 }
 
 button.sm {
@@ -856,34 +946,40 @@ button.sm {
   font-size: 11px;
 }
 
+button.xs {
+  padding: 3px 8px;
+  font-size: 10px;
+}
+
 button.link {
   background: none;
   border: 0;
-  color: var(--accent);
+  color: var(--signal);
   padding: 0;
   font-weight: 500;
 }
 
 button.chip {
-  background: var(--elevated);
-  color: var(--muted);
+  background: var(--lift);
+  color: var(--dim);
   border: 1px solid transparent;
-  padding: 5px 10px;
+  padding: 4px 10px;
   font-size: 11px;
   border-radius: 999px;
   font-weight: 550;
 }
 
 button.chip.active {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--signal);
+  border-color: color-mix(in srgb, var(--signal) 45%, transparent);
+  background: color-mix(in srgb, var(--signal) 12%, transparent);
 }
 
 .preset-row {
   display: flex;
   gap: 6px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 button:active {
@@ -909,22 +1005,22 @@ button:disabled {
 }
 
 .radio small {
-  color: var(--muted);
+  color: var(--dim);
   font-size: 11px;
 }
 
 details.adv {
   margin: 4px 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
-  background: var(--bg);
+  background: var(--void);
 }
 
 details.adv summary {
   cursor: pointer;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--dim);
   font-weight: 550;
 }
 
@@ -942,9 +1038,9 @@ details.adv[open] summary {
 .tab-list li,
 .activity li {
   padding: 8px;
-  border-radius: 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  border: 1px solid var(--line);
   margin-bottom: 6px;
   font-size: 11px;
 }
@@ -953,7 +1049,7 @@ details.adv[open] summary {
   width: 100%;
   text-align: left;
   background: transparent;
-  color: var(--text);
+  color: var(--ink);
   border: 0;
   padding: 0;
   font-weight: 500;
@@ -962,8 +1058,9 @@ details.adv[open] summary {
 
 .tab-list .url {
   display: block;
-  color: var(--muted);
+  color: var(--dim);
   font-size: 10px;
+  font-family: var(--mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -980,49 +1077,72 @@ details.adv[open] summary {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--signal);
   margin-top: 5px;
   flex-shrink: 0;
 }
 
 .activity .when {
-  color: var(--muted);
+  color: var(--dim);
   font-size: 10px;
+  font-family: var(--mono);
   margin-left: auto;
   white-space: nowrap;
 }
 
 .empty {
-  color: var(--muted);
+  color: var(--dim);
   text-align: center;
   border-style: dashed !important;
 }
 
 .inline-foot {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 2px 12px;
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--dim);
+  font-size: 10px;
+  font-family: var(--mono);
+  padding: 4px 2px 8px;
 }
 
+/* Toasts */
 .toast {
   position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  background: var(--elevated);
-  border: 1px solid var(--border);
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 8px 14px;
   border-radius: 8px;
-  padding: 10px 12px;
-  z-index: 20;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   font-size: 12px;
+  font-weight: 550;
+  background: var(--lift);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-width: 90%;
 }
 
 .toast.ok {
-  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--live) 40%, var(--line));
 }
 .toast.bad {
-  border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--fault) 40%, var(--line));
+  color: var(--fault);
+}
+
+/* Focus a11y */
+button:focus-visible,
+input:focus-visible,
+.tab:focus-visible,
+.signal:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-banner[data-state="run"] .conn-dot {
+    animation: none;
+  }
+  button:active {
+    transform: none;
+  }
 }

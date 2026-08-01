@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Executor Browser — design playground</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="playground.css" />
+  </head>
+  <body>
+    <div class="stage">
+      <aside class="meta">
+        <p class="eyebrow">Design playground · shipped to extension v0.6</p>
+        <h1>Executor Browser</h1>
+        <p class="lede">
+          Side panel control plane for pairing Chrome to Executor. Sharp, dense, operator-first.
+          Not wired to the extension yet — visual target only.
+        </p>
+        <ul class="state-list">
+          <li><button type="button" class="state-btn active" data-state="connected">Connected · reverse live</button></li>
+          <li><button type="button" class="state-btn" data-state="needs-key">Needs API key</button></li>
+          <li><button type="button" class="state-btn" data-state="offline">Executor offline</button></li>
+        </ul>
+        <p class="note">
+          <strong>Capture</strong> = local JPEG of the agent tab for you (preview only). Agents use reverse
+          <code>screenshot</code> / <code>snapshot</code> tools separately.
+        </p>
+      </aside>
+
+      <!-- 360px panel mock -->
+      <div class="device" data-state="connected">
+        <div class="panel-shell" id="panel">
+          <header class="hdr">
+            <div class="hdr-left">
+              <div class="mark" aria-hidden="true"></div>
+              <div>
+                <div class="hdr-title">Executor</div>
+                <div class="hdr-sub" id="hdrSub">Connected · reverse</div>
+              </div>
+            </div>
+            <button type="button" class="icon" title="Refresh" aria-label="Refresh">↻</button>
+          </header>
+
+          <div class="signal-rail" id="signalRail">
+            <div class="signal">
+              <span class="led live"></span>
+              <span class="sig-k">Executor</span>
+              <span class="sig-v mono">14ms</span>
+            </div>
+            <div class="signal">
+              <span class="led live"></span>
+              <span class="sig-k">Reverse</span>
+              <span class="sig-v mono">live</span>
+            </div>
+            <div class="signal">
+              <span class="led live"></span>
+              <span class="sig-k">Tabs</span>
+              <span class="sig-v mono">3</span>
+            </div>
+          </div>
+
+          <nav class="tabs" role="tablist">
+            <button type="button" class="tab on" data-view="home">Home</button>
+            <button type="button" class="tab" data-view="connect">
+              Connected<span class="dot"></span>
+            </button>
+            <button type="button" class="tab" data-view="tabs">Tabs <em>3</em></button>
+            <button type="button" class="tab" data-view="agents">Agents</button>
+          </nav>
+
+          <!-- HOME -->
+          <section class="view on" data-view="home">
+            <div class="preview">
+              <div class="preview-bar">
+                <span class="url mono">tbd.jiggytom.com/</span>
+                <button type="button" class="btn ghost xs">Capture</button>
+              </div>
+              <div class="preview-body">
+                <div class="preview-placeholder">
+                  <span class="ph-label">Local preview</span>
+                  <span class="ph-hint">JPEG of agent tab · not sent to Executor</span>
+                </div>
+              </div>
+              <div class="preview-foot">
+                <span>EggOn</span>
+                <span class="muted mono">local only</span>
+              </div>
+            </div>
+
+            <div class="block">
+              <div class="block-h">
+                <h2>Activity</h2>
+                <button type="button" class="link">Clear</button>
+              </div>
+              <ul class="feed">
+                <li><span class="tick"></span><span>Reverse session live</span><span class="when mono">2s</span></li>
+                <li><span class="tick"></span><span>API key verified</span><span class="when mono">12s</span></li>
+                <li><span class="tick"></span><span>Opened agent tab</span><span class="when mono">1m</span></li>
+              </ul>
+            </div>
+          </section>
+
+          <!-- CONNECT -->
+          <section class="view" data-view="connect">
+            <div class="banner ok">
+              <span class="led live lg"></span>
+              <div>
+                <strong>Connected</strong>
+                <span class="mono dim">lab-agents…ts.net:8444 · 14ms</span>
+              </div>
+            </div>
+
+            <ul class="matrix">
+              <li class="row ok"><span class="ico">✓</span><span>Reachable</span><span class="pill mono">14ms</span></li>
+              <li class="row ok"><span class="ico">✓</span><span>Auth</span><span class="pill mono">verified</span></li>
+            </ul>
+
+            <div class="drive">
+              <div class="drive-h">
+                <span>Browser drive</span>
+                <span class="tag">B · reverse</span>
+              </div>
+              <p class="blurb">Extension reverse channel. No companion script. Agents: <code class="mono">tools.browser.user.desktop</code></p>
+              <ul class="matrix tight">
+                <li class="row ok"><span class="ico">✓</span><span>Drive path</span><span class="pill mono">session live</span></li>
+                <li class="row ok"><span class="ico">✓</span><span>Extension tools</span><span class="pill mono">snapshot·click</span></li>
+              </ul>
+              <div class="chips">
+                <button type="button" class="chip on">Extension (B)</button>
+                <button type="button" class="chip">Native (C)</button>
+                <button type="button" class="chip">Companion</button>
+              </div>
+              <div class="row-actions">
+                <button type="button" class="btn ghost sm">Re-check</button>
+                <button type="button" class="btn ghost sm">Edit</button>
+                <button type="button" class="btn ghost sm">Disconnect</button>
+              </div>
+            </div>
+
+            <details class="adv">
+              <summary>Advanced <span class="dim">native · companion</span></summary>
+              <p class="blurb">Optional full CDP host or lab companion on :9230. Not required for path B.</p>
+            </details>
+          </section>
+
+          <!-- TABS -->
+          <section class="view" data-view="tabs">
+            <div class="block">
+              <div class="block-h">
+                <h2>Agent group</h2>
+                <span class="tag soft">Executor</span>
+              </div>
+              <div class="row-actions">
+                <button type="button" class="btn primary sm">Open tab</button>
+                <button type="button" class="btn ghost sm">Capture active</button>
+              </div>
+              <ul class="tab-rows">
+                <li>
+                  <strong>EggOn</strong>
+                  <span class="mono dim">tbd.jiggytom.com/</span>
+                </li>
+                <li>
+                  <strong>EggOn</strong>
+                  <span class="mono dim">tbd.jiggytom.com/</span>
+                </li>
+              </ul>
+            </div>
+            <div class="block">
+              <h2>Mode</h2>
+              <label class="radio"><input type="radio" checked name="m" /> <span><b>This Chrome</b><small>Keep logins</small></span></label>
+              <label class="radio"><input type="radio" name="m" /> <span><b>Fresh profile</b><small>Needs companion</small></span></label>
+              <label class="radio"><input type="radio" name="m" /> <span><b>Extension only</b><small>Groups + preview</small></span></label>
+            </div>
+          </section>
+
+          <!-- AGENTS -->
+          <section class="view" data-view="agents">
+            <div class="block">
+              <div class="block-h">
+                <h2>Status</h2>
+                <span class="tag">full</span>
+              </div>
+              <div class="group">
+                <div class="group-h"><span>Core</span><span class="tag ok">ok</span></div>
+                <ul class="matrix tight">
+                  <li class="row ok"><span class="ico">✓</span><span>Executor</span><span class="pill mono">14ms</span></li>
+                  <li class="row ok"><span class="ico">✓</span><span>API key</span><span class="pill mono">verified</span></li>
+                  <li class="row ok"><span class="ico">✓</span><span>Agent tabs</span><span class="pill mono">3</span></li>
+                </ul>
+              </div>
+              <div class="group opt">
+                <div class="group-h"><span>Browser drive</span><span class="tag soft">path B</span></div>
+                <p class="blurb">Reverse session live · agents use <code class="mono">tools.browser.user.desktop</code></p>
+                <ul class="matrix tight">
+                  <li class="row ok"><span class="ico">✓</span><span>B · Reverse</span><span class="pill mono">session</span></li>
+                  <li class="row skip"><span class="ico">○</span><span>C · Native</span><span class="pill mono">off</span></li>
+                </ul>
+              </div>
+              <p class="hint">Core + reverse ready.</p>
+            </div>
+            <div class="block">
+              <div class="block-h">
+                <h2>Agent prompt</h2>
+                <button type="button" class="link">Copy</button>
+              </div>
+              <pre class="prompt mono">Executor CONNECTED. Browser drive path B live.
+Executor MCP: https://lab-agents…/mcp
+Chrome: tools.browser.user.desktop
+Prefer snapshot. Tab group “Executor”.</pre>
+            </div>
+            <footer class="foot mono">v0.6.0 · playground</footer>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <script src="playground.js"></script>
+  </body>
+</html>

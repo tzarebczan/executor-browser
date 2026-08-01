@@ -23,9 +23,25 @@ function toast(msg, kind = "ok") {
   setTimeout(() => el.remove(), 2400);
 }
 
+/**
+ * Update a signal-rail value + LED (or legacy .stat-value).
+ * @param {HTMLElement | null} el
+ * @param {string} text
+ * @param {"ok"|"bad"|"warn"|""} cls
+ */
 function setStat(el, text, cls) {
+  if (!el) return;
   el.textContent = text;
-  el.className = `stat-value ${cls || ""}`;
+  const isSig = el.classList.contains("sig-v") || el.closest(".signal");
+  el.className = isSig ? `sig-v mono ${cls || ""}`.trim() : `stat-value ${cls || ""}`.trim();
+  const signal = el.closest(".signal");
+  const led = signal?.querySelector(".led");
+  if (led) {
+    led.className = "led";
+    if (cls === "ok") led.classList.add("live");
+    else if (cls === "warn") led.classList.add("warn");
+    else if (cls === "bad") led.classList.add("fault");
+  }
 }
 
 function timeAgo(ts) {
@@ -485,7 +501,9 @@ function renderSetup(status) {
   else if (!f.executorReach) $("headerStatus").textContent = "Executor offline";
   else if (!f.hasKey) $("headerStatus").textContent = "Needs API key";
   else if (!f.connected) $("headerStatus").textContent = "Auth failed";
+  else if (f.reverse?.mode === "reverse" || f.driveReady) $("headerStatus").textContent = "Connected · reverse";
   else if (f.automationOk) $("headerStatus").textContent = "Connected · automation";
+  else if (f.native?.connected) $("headerStatus").textContent = "Connected · native";
   else $("headerStatus").textContent = "Connected";
 }
 
@@ -502,13 +520,13 @@ async function refresh() {
     setStat($("executorStat"), settings?.executorUrl ? "offline" : "—", "bad");
   }
 
-  // Home strip: browser drive status
+  // Signal rail: reverse / drive path
   const driveMode = status.driveMode || settings?.driveMode || "reverse";
   const rev = status.reverse || {};
   if (status.driveReady || rev.mode === "reverse") {
-    setStat($("companionStat"), driveMode === "reverse" ? "B" : "on", "ok");
+    setStat($("companionStat"), driveMode === "reverse" ? "live" : "on", "ok");
   } else if (rev.mode === "local-ready") {
-    setStat($("companionStat"), "B·ready", "warn");
+    setStat($("companionStat"), "ready", "warn");
   } else if (status.native?.connected) {
     setStat($("companionStat"), "C", "ok");
   } else if (companion?.ok) {
@@ -518,8 +536,8 @@ async function refresh() {
   }
 
   const n = tabs?.length || 0;
-  $("tabStat").textContent = String(n);
-  $("tabCount").textContent = String(n);
+  setStat($("tabStat"), String(n), n > 0 ? "ok" : "warn");
+  if ($("tabCount")) $("tabCount").textContent = String(n);
 
   if (document.activeElement?.id !== "executorUrl") {
     $("executorUrl").value = settings.executorUrl || "";
@@ -608,14 +626,16 @@ async function capture({ focus = false } = {}) {
     const msg = friendlyCaptureError(res?.error);
     $("previewUrl").textContent = "Capture failed";
     $("previewTitle").textContent = "—";
-    $("previewEmptyTitle").textContent = "No live frame";
+    $("previewEmptyTitle").textContent = "Local preview";
     $("previewEmptyHint").textContent = msg;
     errEl.hidden = false;
     errEl.textContent = msg;
+    if ($("previewLocalTag")) $("previewLocalTag").hidden = true;
     return;
   }
   errEl.hidden = true;
   $("previewEmpty").hidden = true;
+  if ($("previewLocalTag")) $("previewLocalTag").hidden = false;
   const img = $("previewImg");
   img.hidden = false;
   img.src = res.dataUrl;
