@@ -4,9 +4,12 @@
 
 | Piece | Responsibility |
 |-------|----------------|
-| **Extension** | Side panel UX, tab groups, live preview, **API-key connect over Tailscale** |
-| **Companion** (optional) | CDP → streamable MCP (`:9230`) so *remote agents can drive* Chrome |
-| **Executor** | Tool catalog + policies; lab Serve on `:8444`; `EXECUTOR_ALLOW_LOCAL_NETWORK` for private MCP |
+| **Extension** | Side panel UX, tab groups, live preview, **API-key connect**, **path B reverse bridge tools** |
+| **Native host (C)** | Optional one-time binary for full CDP via `chrome.runtime.connectNative` |
+| **Companion** (legacy lab) | CDP → streamable MCP (`:9230`) for Executor HTTP pull |
+| **Executor** | Tool catalog + policies; lab Serve on `:8444`; browser-bridge session API (for B) |
+
+See also: [BRIDGE-MODES.md](./BRIDGE-MODES.md).
 
 ## Connect (default — no companion)
 

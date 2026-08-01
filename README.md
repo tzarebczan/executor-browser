@@ -3,25 +3,26 @@
 Private Chrome extension that makes **browser control** feel as easy as Claude/Codex tab groups:
 
 - **Side panel by default** (click the icon → panel, not a tiny popup)
-- **Executor tab group** for agent-owned tabs
-- **Live preview** of the active agent tab (JPEG capture + fun chrome UI)
-- **One-click register** with self-hosted Executor (`tools.chrome.user.desktop`)
-- Status, activity feed, modes (existing Chrome / fresh / extension-only)
-
-Companion (CDP → MCP) still lives on the machine:
+- **API-key connect** to Executor over Tailscale
+- **Path B (default):** extension reverse channel — **no local script**
+- **Path C (Advanced):** native messaging host for full CDP (one-time binary install)
+- **Legacy:** companion on `:9230` for lab DevTools MCP
+- Tab group + live preview
 
 ```text
-extension (UX + tab groups + pair)
-    │
-    ▼
-companion :9230  (chrome-devtools-mcp via infra/host/chrome-agent)
-    │
-    ▼
-Chrome (remote debugging or fresh profile)
-    │
-    ▼
-Executor  ←  http://<tailscale-ip>:9230/mcp   (ALLOW_LOCAL_NETWORK)
+Path B (default):
+  Extension ──outbound──► Executor browser-bridge session
+       │                       ▲
+       └── tabs/scripting ─────┘  (tool jobs long-polled)
+
+Path C (Advanced):
+  Extension ──nativeMessaging──► host binary ──CDP──► Chrome
+
+Legacy companion:
+  Executor ──HTTP──► http://<ts-ip>:9230/mcp ──CDP──► Chrome
 ```
+
+Details: `docs/BRIDGE-MODES.md`
 
 ## Install (unpacked)
 

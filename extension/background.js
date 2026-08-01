@@ -1,12 +1,27 @@
 /**
  * Executor Browser — service worker
  *
- * - Side panel opens by default on action click
- * - Tab group "Executor" for agent-owned tabs
- * - Companion health (localhost:9230)
- * - Optional Executor MCP registration (API key + Tailscale URL)
- * - Live preview via captureVisibleTab for the active agent-group tab
+ * - Side panel + API-key connect (Tailscale)
+ * - Path B (default): extension reverse bridge — no local script
+ * - Path C (advanced): native messaging host for full CDP
+ * - Legacy: companion :9230 register (lab)
+ * - Tab group + live preview
  */
+
+import {
+  startReverseBridge,
+  stopReverseBridge,
+  getReverseStatus,
+  handleBridgeToolCall,
+} from "./lib/reverse-bridge.js";
+import {
+  connectNative,
+  disconnectNative,
+  getNativeStatus,
+  nativeToolCall,
+  NATIVE_HOST_INSTALL,
+} from "./lib/native-bridge.js";
+import { BROWSER_TOOLS_META } from "./lib/browser-tools.js";
 
 const DEFAULTS = {
   companionHealthUrl: "http://127.0.0.1:9230/healthz",
@@ -19,6 +34,14 @@ const DEFAULTS = {
   registeredAt: 0,
   /** true after successful companion MCP register with Executor */
   chromeRegistered: false,
+  /**
+   * Browser drive mode:
+   *  reverse — path B (extension-only reverse channel) [default]
+   *  native  — path C (native messaging host)
+   *  companion — legacy :9230 HTTP register
+   *  off — pair only
+   */
+  driveMode: "reverse",
   mode: "existing", // existing | fresh | extension-only
   tailscaleHint: "",
   groupTitle: "Executor",
@@ -297,7 +320,7 @@ async function verifyExecutorAuth() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.4.0" },
+          clientInfo: { name: "executor-browser", version: "0.5.0" },
         },
       }),
     });
@@ -313,10 +336,48 @@ async function verifyExecutorAuth() {
       };
     }
     await pushActivity({ kind: "executor", message: "API key verified with Executor" });
+    // Path B: start reverse bridge automatically after auth
+    const settings = await getSettings();
+    if ((settings.driveMode || "reverse") === "reverse") {
+      startReverseBridge(getSettings, pushActivity).catch(() => {});
+    }
     return { ok: true, status: r.status, snippet: text.slice(0, 120) };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }
+}
+
+/** Unified browser tool entry (B, C, or auto). */
+async function runDriveTool(tool, args = {}) {
+  const s = await getSettings();
+  const drive = s.driveMode || "reverse";
+  if (drive === "native") {
+    const n = getNativeStatus();
+    if (!n.connected) await connectNative();
+    if (getNativeStatus().connected) return nativeToolCall(tool, args);
+    // fall through to extension tools if host missing
+  }
+  return handleBridgeToolCall(tool, args);
+}
+
+async function ensureDriveForMode() {
+  const s = await getSettings();
+  const drive = s.driveMode || "reverse";
+  if (drive === "reverse" && s.executorApiKey && s.executorUrl) {
+    return startReverseBridge(getSettings, pushActivity);
+  }
+  if (drive === "native") {
+    await stopReverseBridge();
+    return connectNative();
+  }
+  if (drive === "off") {
+    await stopReverseBridge();
+    disconnectNative();
+    return { mode: "off" };
+  }
+  // companion: reverse not required; registration is separate
+  await stopReverseBridge();
+  return { mode: "companion" };
 }
 
 const TS_IP_RE = /100\.\d{1,3}\.\d{1,3}\.\d{1,3}/;
@@ -532,13 +593,35 @@ return {
 // Open side panel by default when clicking the extension icon
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
-// Periodic health for badge
+// Periodic health for badge + reverse bridge keepalive
 chrome.alarms.create("companion-health", { periodInMinutes: 1 });
+chrome.alarms.create("bridge-keepalive", { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener(async (a) => {
+  if (a.name === "bridge-keepalive") {
+    const s = await getSettings();
+    if ((s.driveMode || "reverse") === "reverse" && s.executorApiKey && s.executorUrl) {
+      const st = getReverseStatus();
+      if (!st.running || st.mode === "idle" || st.mode === "error") {
+        startReverseBridge(getSettings, pushActivity).catch(() => {});
+      }
+    }
+    return;
+  }
   if (a.name !== "companion-health") return;
-  const c = await checkCompanion();
-  await chrome.action.setBadgeText({ text: c.ok ? "" : "!" });
-  await chrome.action.setBadgeBackgroundColor({ color: c.ok ? "#34a853" : "#ea4335" });
+  const s = await getSettings();
+  const drive = s.driveMode || "reverse";
+  let ok = Boolean(s.registeredAt && s.executorApiKey);
+  if (drive === "reverse") {
+    const st = getReverseStatus();
+    ok = ok && (st.mode === "reverse" || st.mode === "local-ready" || st.running);
+  } else if (drive === "companion") {
+    const c = await checkCompanion();
+    ok = c.ok;
+  } else if (drive === "native") {
+    ok = getNativeStatus().connected;
+  }
+  await chrome.action.setBadgeText({ text: ok ? "" : "!" });
+  await chrome.action.setBadgeBackgroundColor({ color: ok ? "#34a853" : "#ea4335" });
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -551,15 +634,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const executor = settings.executorUrl
           ? await probeExecutor(settings.executorUrl)
           : { ok: false, error: "no url" };
+        const reverse = getReverseStatus();
+        const native = getNativeStatus();
+        const driveMode = settings.driveMode || "reverse";
+        // "browser drive ready" for UI: reverse local-ready/session, native connected, or companion registered
+        const driveReady =
+          (driveMode === "reverse" &&
+            (reverse.mode === "reverse" || reverse.mode === "local-ready")) ||
+          (driveMode === "native" && native.connected) ||
+          (driveMode === "companion" && Boolean(settings.chromeRegistered) && companion.ok);
         sendResponse({
           settings: {
             ...settings,
-            // never echo full API key to UI logs; mask in status
             executorApiKey: settings.executorApiKey ? "••••••••" : "",
             hasApiKey: Boolean(settings.executorApiKey),
           },
           companion,
           executor,
+          reverse,
+          native,
+          driveReady,
+          driveMode,
+          browserTools: BROWSER_TOOLS_META,
           tabs,
           activity: settings.activity || [],
         });
@@ -589,6 +685,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case "disconnectExecutor": {
+        await stopReverseBridge();
+        disconnectNative();
         const settings = await setSettings({
           executorApiKey: "",
           registeredAt: 0,
@@ -596,6 +694,34 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           publicEndpoint: "",
         });
         sendResponse({ ok: true, hasApiKey: Boolean(settings.executorApiKey) });
+        break;
+      }
+      case "setDriveMode": {
+        const driveMode = msg.driveMode || "reverse";
+        await setSettings({ driveMode });
+        const st = await ensureDriveForMode();
+        sendResponse({ ok: true, driveMode, status: st });
+        break;
+      }
+      case "startReverseBridge": {
+        sendResponse(await startReverseBridge(getSettings, pushActivity));
+        break;
+      }
+      case "stopReverseBridge": {
+        await stopReverseBridge();
+        sendResponse({ ok: true });
+        break;
+      }
+      case "connectNativeHost": {
+        sendResponse(await connectNative());
+        break;
+      }
+      case "nativeHostInfo": {
+        sendResponse({ ok: true, ...NATIVE_HOST_INSTALL, status: getNativeStatus() });
+        break;
+      }
+      case "browserTool": {
+        sendResponse(await runDriveTool(msg.tool, msg.args || {}));
         break;
       }
       case "detectTailscale":
@@ -657,17 +783,42 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-// External pair from product web
+// External: product web pair + browser tools (path B without Executor bridge API yet)
 chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === "pairFromWeb") {
-    setSettings({
-      pairToken: msg.pairToken || "",
-      executorUrl: msg.executorUrl || "",
-      pairedAt: Date.now(),
-    }).then(async () => {
+  (async () => {
+    if (msg?.type === "pairFromWeb") {
+      await setSettings({
+        pairToken: msg.pairToken || "",
+        executorUrl: msg.executorUrl || "",
+        pairedAt: Date.now(),
+      });
       await pushActivity({ kind: "pair", message: "Paired from web" });
       sendResponse({ ok: true });
-    });
-    return true;
-  }
+      return;
+    }
+    if (msg?.type === "browserTool" || msg?.type === "chromeTool") {
+      const result = await runDriveTool(msg.tool || msg.name, msg.args || msg.arguments || {});
+      sendResponse(result);
+      return;
+    }
+    if (msg?.type === "bridgeStatus") {
+      sendResponse({
+        ok: true,
+        reverse: getReverseStatus(),
+        native: getNativeStatus(),
+        tools: BROWSER_TOOLS_META,
+      });
+      return;
+    }
+    sendResponse({ ok: false, error: "unknown external message" });
+  })().catch((e) => sendResponse({ ok: false, error: String(e) }));
+  return true;
 });
+
+// Boot: if already connected, bring up reverse bridge
+(async () => {
+  const s = await getSettings();
+  if (s.executorApiKey && s.executorUrl && (s.driveMode || "reverse") === "reverse") {
+    startReverseBridge(getSettings, pushActivity).catch(() => {});
+  }
+})();

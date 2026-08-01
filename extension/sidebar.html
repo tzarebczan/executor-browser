@@ -148,28 +148,48 @@
         <p class="hint" id="connectHint" role="status"></p>
       </div>
 
-      <div class="mx-group optional connect-opt" id="connectOptional">
+      <div class="mx-group connect-opt" id="connectOptional">
         <div class="mx-group-head">
-          <span>Remote browser tools</span>
-          <span class="mx-tag optional-tag">needs companion</span>
+          <span>Browser drive</span>
+          <span class="mx-tag" id="driveModeTag">B · reverse</span>
         </div>
         <p class="mx-blurb" id="connectDriveBlurb">
-          Extension pairs you and manages tabs. Agents that click/type need the local companion MCP
-          (Chrome can’t host that port from MV3 alone).
+          Default: extension reverse channel (no local script). Connect starts it after API auth.
         </p>
         <ul class="matrix" id="connectMatrixOpt" aria-live="polite"></ul>
+        <div class="preset-row" id="driveModeRow">
+          <button type="button" class="chip active" data-drive="reverse">Extension (B)</button>
+          <button type="button" class="chip" data-drive="native">Native host (C)</button>
+          <button type="button" class="chip" data-drive="companion">Companion</button>
+        </div>
+        <div class="actions">
+          <button type="button" class="ghost sm" id="btnStartDrive">Enable drive</button>
+          <button type="button" class="ghost sm" id="btnPingDrive">Ping tools</button>
+        </div>
       </div>
 
-      <!-- Advanced: below fold; auto-detect companion / TS / register -->
+      <!-- Advanced: native host + legacy companion -->
       <details class="adv below-fold" id="advPanel">
         <summary>
-          Advanced · companion
-          <span class="muted" id="advSummary">off</span>
+          Advanced
+          <span class="muted" id="advSummary">native · companion</span>
         </summary>
 
+        <div class="card compact" style="margin: 8px 0; padding: 8px">
+          <h2 style="margin: 0 0 6px">C · Native messaging host</h2>
+          <p class="hint tight">
+            Host <strong>manifest alone is not enough</strong> — it points Chrome at a binary.
+            One-time install (no always-on script). Full CDP when host is present.
+          </p>
+          <p class="hint tight" id="nativeHostHint">Host: com.executor.browser</p>
+          <div class="actions">
+            <button type="button" class="primary sm" id="btnConnectNative">Connect host</button>
+            <button type="button" class="ghost sm" id="btnNativeInfo">Copy install JSON</button>
+          </div>
+        </div>
+
         <p class="hint tight">
-          Starts local MCP on :9230 so Executor can call <code>tools.chrome.*</code> on this PC.
-          Not required for Connection / API key.
+          <strong>Legacy lab:</strong> companion on :9230 (Node). Prefer B unless you need full DevTools MCP.
         </p>
 
         <ul class="matrix tight" id="advMatrix"></ul>
@@ -186,7 +206,7 @@
           <div class="install-step">
             <span class="n">2</span>
             <div>
-              <strong>Companion</strong>
+              <strong>Companion (lab)</strong>
               <pre class="cmd" id="companionCmd">node infra/host/chrome-agent/start-companion.mjs</pre>
               <div class="actions">
                 <button type="button" class="ghost sm" id="btnCopyCompanionCmd">Copy</button>
@@ -314,7 +334,7 @@
       </div>
 
       <footer class="inline-foot">
-        <span id="versionLabel">v0.4.4</span>
+        <span id="versionLabel">v0.5.0</span>
       </footer>
     </section>
 

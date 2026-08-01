@@ -105,6 +105,13 @@ function deriveFlags(status) {
   const hasEndpoint = Boolean(settings.publicEndpoint || $("publicEndpoint")?.value?.trim());
   // session auth wins; fall back to registeredAt if we verified before
   const connected = authOk || (registeredAt && hasKey && executorReach);
+  const driveMode = status?.driveMode || settings.driveMode || "reverse";
+  const reverse = status?.reverse || {};
+  const native = status?.native || {};
+  const driveReady = Boolean(status?.driveReady);
+  // extension reverse tools ready even if server bridge API not yet deployed
+  const reverseReady =
+    reverse.mode === "reverse" || reverse.mode === "local-ready" || reverse.running;
   return {
     settings,
     executor,
@@ -114,7 +121,17 @@ function deriveFlags(status) {
     connected,
     companionOn,
     hasEndpoint,
-    automationOk: automationOk || Boolean(settings.chromeRegistered),
+    driveMode,
+    reverse,
+    native,
+    driveReady,
+    reverseReady,
+    automationOk:
+      automationOk ||
+      driveReady ||
+      reverseReady ||
+      Boolean(settings.chromeRegistered) ||
+      Boolean(native.connected),
     tabs: status?.tabs?.length || 0,
   };
 }
@@ -200,18 +217,48 @@ function renderConnectState(f) {
     }
   }
 
+  if ($("driveModeTag")) {
+    const labels = {
+      reverse: "B · reverse",
+      native: "C · native",
+      companion: "legacy",
+      off: "off",
+    };
+    $("driveModeTag").textContent = labels[f.driveMode] || f.driveMode;
+    $("driveModeTag").className =
+      f.driveReady || f.reverseReady ? "mx-tag ok-tag" : "mx-tag";
+  }
+
   if ($("connectDriveBlurb")) {
-    if (f.automationOk) {
-      $("connectDriveBlurb").textContent =
-        "Remote tools.chrome.* active via companion. Extension tab group is for local organization.";
-    } else if (f.companionOn) {
-      $("connectDriveBlurb").textContent =
-        "Companion running — Register under Advanced so Executor can call this Chrome.";
-    } else {
-      $("connectDriveBlurb").textContent =
-        "You’re connected for Executor API. Remote click/type needs companion (MV3 can’t expose MCP). Extension still handles pair, tab group, preview.";
+    if (f.driveMode === "reverse") {
+      if (f.reverse?.mode === "reverse") {
+        $("connectDriveBlurb").textContent =
+          "Path B active — extension reverse session with Executor. No local script.";
+      } else if (f.reverse?.mode === "local-ready") {
+        $("connectDriveBlurb").textContent =
+          "Path B tools ready in extension. Executor browser-bridge API not deployed yet — local/external tool calls work; remote tools.chrome.* needs server route.";
+      } else if (f.connected) {
+        $("connectDriveBlurb").textContent =
+          "Path B (default): extension reverse channel after connect. No companion script.";
+      } else {
+        $("connectDriveBlurb").textContent =
+          "Connect first. Browser drive uses extension reverse channel (B) by default.";
+      }
+    } else if (f.driveMode === "native") {
+      $("connectDriveBlurb").textContent = f.native?.connected
+        ? "Path C: native host connected (full CDP path)."
+        : "Path C: install native host once (manifest + binary), then Connect host.";
+    } else if (f.driveMode === "companion") {
+      $("connectDriveBlurb").textContent = f.companionOn
+        ? "Legacy companion up — Register under Advanced if not yet."
+        : "Legacy companion mode — start Node MCP on :9230 (lab).";
     }
   }
+
+  // drive mode chips
+  document.querySelectorAll("[data-drive]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.drive === f.driveMode);
+  });
 }
 
 function renderMatrices(status) {
@@ -236,17 +283,35 @@ function renderMatrices(status) {
     matrixRow(authState, "Auth", authDetail),
   ].join("");
 
-  let drivePill;
-  if (f.automationOk) drivePill = "on";
-  else if (f.companionOn) drivePill = "local only";
-  else drivePill = "off";
+  let driveState = "skip";
+  let drivePill = "off";
+  if (f.driveMode === "reverse") {
+    if (f.reverse?.mode === "reverse") {
+      driveState = "ok";
+      drivePill = "session live";
+    } else if (f.reverse?.mode === "local-ready") {
+      driveState = "warn";
+      drivePill = "tools ready · server TBD";
+    } else if (f.connected) {
+      driveState = "warn";
+      drivePill = "starting…";
+    } else {
+      drivePill = "connect first";
+    }
+  } else if (f.driveMode === "native") {
+    driveState = f.native?.connected ? "ok" : "warn";
+    drivePill = f.native?.connected ? "host up" : "host missing";
+  } else if (f.driveMode === "companion") {
+    driveState = f.automationOk && f.companionOn ? "ok" : f.companionOn ? "warn" : "skip";
+    drivePill = f.automationOk ? "registered" : f.companionOn ? "local only" : "off";
+  }
 
   const connectOptRows = [
+    matrixRow(driveState, "Drive path", drivePill),
     matrixRow(
-      f.automationOk ? "ok" : f.companionOn ? "warn" : "skip",
-      "tools.chrome.*",
-      drivePill,
-      { optional: true },
+      f.reverseReady || f.driveReady ? "ok" : "skip",
+      "Extension tools",
+      f.reverseReady || f.driveMode === "reverse" ? "snapshot·click·type" : "—",
     ),
   ].join("");
 
@@ -263,56 +328,50 @@ function renderMatrices(status) {
     ),
   ].join("");
 
-  // Agents → Browser drive (optional; empty ≠ broken)
-  let companionDetail;
-  let companionState;
-  if (f.companionOn) {
-    companionState = "ok";
-    companionDetail = `${f.companion?.ms ?? "?"}ms · :9230`;
-  } else {
-    companionState = "skip";
-    companionDetail = "not running";
-  }
-
-  // Chrome tools = companion registered on Executor (≠ Executor /mcp)
-  let chromeState;
-  let chromeDetail;
-  if (f.automationOk) {
-    chromeState = "ok";
-    chromeDetail = "registered";
-  } else if (!f.companionOn) {
-    chromeState = "skip";
-    chromeDetail = "needs companion";
-  } else if (f.hasEndpoint) {
-    chromeState = "warn";
-    chromeDetail = "not registered";
-  } else {
-    chromeState = "skip";
-    chromeDetail = "not registered";
-  }
-
+  const revMode = f.reverse?.mode || "idle";
   const driveRows = [
-    matrixRow(companionState, "Companion", companionDetail, { optional: true }),
-    matrixRow(chromeState, "Chrome tools", chromeDetail, { optional: true }),
+    matrixRow(
+      f.driveMode === "reverse" && (revMode === "reverse" || revMode === "local-ready")
+        ? revMode === "reverse"
+          ? "ok"
+          : "warn"
+        : f.driveMode === "reverse"
+          ? "skip"
+          : "skip",
+      "B · Reverse",
+      revMode === "reverse" ? "session" : revMode === "local-ready" ? "tools ready" : revMode,
+    ),
+    matrixRow(
+      f.native?.connected ? "ok" : "skip",
+      "C · Native host",
+      f.native?.connected ? "connected" : "not installed",
+      { optional: true },
+    ),
+    matrixRow(
+      f.companionOn ? "ok" : "skip",
+      "Legacy companion",
+      f.companionOn ? `${f.companion?.ms ?? "?"}ms` : "off",
+      { optional: true },
+    ),
   ].join("");
 
   const advRows = [
     matrixRow(
+      f.native?.connected ? "ok" : "skip",
+      "Native host",
+      f.native?.connected ? "up" : f.native?.lastError || "not found",
+      { optional: true },
+    ),
+    matrixRow(
       f.companionOn ? "ok" : "skip",
-      "Companion",
-      f.companionOn ? "healthy" : "optional · off",
+      "Companion :9230",
+      f.companionOn ? "healthy" : "off",
       { optional: true },
     ),
     matrixRow(
       f.hasEndpoint ? "ok" : "skip",
       "Public MCP URL",
-      f.hasEndpoint ? "set" : "auto on detect",
-      { optional: true },
-    ),
-    matrixRow(
-      f.automationOk ? "ok" : "skip",
-      "Registered to Executor",
-      f.automationOk ? "yes" : "optional",
+      f.hasEndpoint ? "set" : "—",
       { optional: true },
     ),
   ].join("");
@@ -343,14 +402,16 @@ function renderMatrices(status) {
   }
 
   if ($("driveBlurb")) {
-    if (f.automationOk) {
-      $("driveBlurb").textContent = "tools.chrome.user.desktop registered — agents can drive Chrome.";
-    } else if (f.companionOn) {
+    if (f.driveMode === "reverse" && revMode === "reverse") {
+      $("driveBlurb").textContent = "Path B reverse session live — agents can drive via Executor bridge.";
+    } else if (f.driveMode === "reverse" && revMode === "local-ready") {
       $("driveBlurb").textContent =
-        "Companion up. Advanced → Register to expose tools.chrome.* to Executor.";
+        "Extension tools ready (B). Wire Executor /api/browser-bridge for remote tools.chrome.*.";
+    } else if (f.native?.connected) {
+      $("driveBlurb").textContent = "Path C native host connected.";
     } else {
       $("driveBlurb").textContent =
-        "Extension ≠ remote CDP. Pair + tabs + preview work now; remote click/type needs companion MCP.";
+        "Default drive is extension reverse (B). Native host (C) or companion under Advanced.";
     }
   }
 
@@ -358,16 +419,22 @@ function renderMatrices(status) {
     if (!f.executorReach) $("nextHint").textContent = "Not connected: Tailscale / Detect.";
     else if (!f.hasKey) $("nextHint").textContent = "Not connected: paste API key.";
     else if (!f.connected) $("nextHint").textContent = "Not connected: auth failed or verifying.";
-    else if (f.automationOk) $("nextHint").textContent = "Connected + remote browser tools.";
-    else $("nextHint").textContent = "Connected to Executor. Remote browser tools off (companion).";
+    else if (revMode === "reverse") $("nextHint").textContent = "Connected + reverse browser bridge.";
+    else if (revMode === "local-ready")
+      $("nextHint").textContent = "Connected. Extension tools ready; Executor bridge API pending.";
+    else $("nextHint").textContent = "Connected to Executor.";
   }
 
   if ($("advSummary")) {
-    $("advSummary").textContent = f.automationOk
-      ? "on"
-      : f.companionOn
-        ? "companion up"
-        : "optional · off";
+    if (f.native?.connected) $("advSummary").textContent = "native up";
+    else if (f.companionOn) $("advSummary").textContent = "companion up";
+    else $("advSummary").textContent = "optional";
+  }
+
+  if ($("nativeHostHint") && f.native) {
+    $("nativeHostHint").textContent = f.native.connected
+      ? "Native host connected"
+      : f.native.lastError || "Host: com.executor.browser (not installed)";
   }
 }
 
@@ -435,9 +502,15 @@ async function refresh() {
     setStat($("executorStat"), settings?.executorUrl ? "offline" : "—", "bad");
   }
 
-  // Home strip: automation = companion + register when known
-  if (automationOk || (companion?.ok && settings?.publicEndpoint && settings?.registeredAt)) {
-    setStat($("companionStat"), "on", "ok");
+  // Home strip: browser drive status
+  const driveMode = status.driveMode || settings?.driveMode || "reverse";
+  const rev = status.reverse || {};
+  if (status.driveReady || rev.mode === "reverse") {
+    setStat($("companionStat"), driveMode === "reverse" ? "B" : "on", "ok");
+  } else if (rev.mode === "local-ready") {
+    setStat($("companionStat"), "B·ready", "warn");
+  } else if (status.native?.connected) {
+    setStat($("companionStat"), "C", "ok");
   } else if (companion?.ok) {
     setStat($("companionStat"), "local", "warn");
   } else {
@@ -939,39 +1012,59 @@ function buildAgentPrompt(settings) {
     null;
   const tabN = lastStatus?.tabs?.length || 0;
   const group = s.groupTitle || "Executor";
-  const driveOn = Boolean(automationOk || s.chromeRegistered);
+  const driveMode = lastStatus?.driveMode || s.driveMode || "reverse";
+  const rev = lastStatus?.reverse || {};
+  const nativeOn = Boolean(lastStatus?.native?.connected);
+  const companionReg = Boolean(s.chromeRegistered && publicMcp);
 
-  if (driveOn && publicMcp) {
+  if (driveMode === "reverse" && (rev.mode === "reverse" || rev.mode === "local-ready")) {
     return [
-      "Browser control is ON for this desktop session via Executor.",
+      "Executor CONNECTED. Browser drive path B (extension reverse) is enabled.",
       "",
       `Executor MCP: ${mcp}`,
-      `Chrome tools address: tools.chrome.user.desktop`,
-      `Companion endpoint (already registered): ${publicMcp}`,
+      "Chrome tools: extension-native (tabs, navigate, snapshot, click, type, screenshot).",
+      rev.mode === "reverse"
+        ? "Reverse bridge session is live — use tools.chrome.user.desktop when Executor routes to this session."
+        : "Extension tools are ready; if tools.chrome.* is missing server-side, say the browser-bridge API is not wired yet.",
       "",
       "How to use:",
-      `- Call tools under tools.chrome.user.desktop (navigate, click, type, fill, wait, …).`,
-      "- Prefer take_snapshot / a11y tree over screenshots. Do not start performance traces unless asked.",
-      `- Prefer the Chrome tab group titled “${group}” for agent work${tabN ? ` (${tabN} tab(s) already open)` : ""}.`,
-      "- Keep sessions in normal http(s) pages; chrome:// and extension pages are not controllable.",
-      "- If a chrome tool errors or connection is degraded, say so and stop inventing page state.",
-      "- Use other Executor tools as needed; browser tools only when the task needs the live page.",
+      "- Prefer snapshot (a11y-ish) over screenshots.",
+      `- Prefer tab group “${group}”${tabN ? ` (${tabN} open)` : ""}.`,
+      "- Normal http(s) pages only; not chrome://.",
+      "- On tool error, report it — do not invent DOM state.",
     ].join("\n");
   }
 
-  // Connected for Executor API; remote CDP needs companion (extension can't host MCP in MV3)
+  if (nativeOn) {
+    return [
+      "Executor CONNECTED. Browser drive path C (native host) is connected.",
+      `Executor MCP: ${mcp}`,
+      "Use full CDP chrome tools via the native host when available.",
+      `- Prefer tab group “${group}”. Prefer snapshot over screenshots.`,
+    ].join("\n");
+  }
+
+  if (companionReg) {
+    return [
+      "Browser control ON via legacy companion MCP.",
+      `Executor MCP: ${mcp}`,
+      `Chrome tools: tools.chrome.user.desktop @ ${publicMcp}`,
+      "- Prefer take_snapshot. No performance traces unless asked.",
+      `- Tab group “${group}”${tabN ? ` (${tabN} open)` : ""}.`,
+    ].join("\n");
+  }
+
   return [
-    "Executor is CONNECTED for this user (API key verified).",
-    "",
+    "Executor is CONNECTED (API key verified).",
     `Executor MCP: ${mcp}`,
     "Use Executor tools for this session.",
     "",
-    "Browser control:",
-    "- Remote tools.chrome.* are NOT available — companion MCP is not registered.",
-    "- Why: Chrome MV3 extensions cannot expose a streamable MCP port for Executor to call. A small local companion does that.",
-    `- The “${group}” tab group + side-panel preview are local UX only (open/group/capture), not agent CDP.`,
-    "- If the task needs live click/type/snapshot: user starts companion + Advanced → Register, then re-copy this prompt.",
-    "- Otherwise use non-browser Executor tools only. Do not invent page state.",
+    "Browser drive: not fully routed for remote tools.chrome.* yet.",
+    "- Path B (default): extension reverse — enable on Connect after auth.",
+    "- Path C: Advanced → native host (one-time binary install).",
+    "- Legacy: companion :9230 under Advanced.",
+    `- Tab group “${group}” is local UX until a drive path is active.`,
+    "Do not invent page state. Ask user to Enable drive if browser work is required.",
   ].join("\n");
 }
 
@@ -992,6 +1085,62 @@ $("btnCopyAgentPrompt")?.addEventListener("click", async () => {
 });
 
 $("btnGoConnect")?.addEventListener("click", () => selectTab("connect"));
+
+document.querySelectorAll("[data-drive]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const driveMode = btn.dataset.drive;
+    await chrome.runtime.sendMessage({ type: "setDriveMode", driveMode });
+    if (driveMode === "companion") $("advPanel").open = true;
+    if (driveMode === "native") $("advPanel").open = true;
+    toast(`Drive mode: ${driveMode}`);
+    await refresh();
+  });
+});
+
+$("btnStartDrive")?.addEventListener("click", async () => {
+  const mode = lastStatus?.driveMode || "reverse";
+  if (mode === "native") {
+    const r = await chrome.runtime.sendMessage({ type: "connectNativeHost" });
+    toast(r?.connected ? "Native host up" : r?.lastError || "Host missing", r?.connected ? "ok" : "bad");
+  } else if (mode === "companion") {
+    $("advPanel").open = true;
+    toast("Use Advanced → Register for companion");
+  } else {
+    const r = await chrome.runtime.sendMessage({ type: "startReverseBridge" });
+    toast(
+      r?.mode === "reverse"
+        ? "Reverse session live"
+        : r?.mode === "local-ready"
+          ? "Tools ready (server bridge TBD)"
+          : r?.lastError || "Bridge started",
+      r?.mode === "error" ? "bad" : "ok",
+    );
+  }
+  await refresh();
+});
+
+$("btnPingDrive")?.addEventListener("click", async () => {
+  const r = await chrome.runtime.sendMessage({ type: "browserTool", tool: "ping" });
+  toast(r?.ok ? `Ping ok · ${r.mode || "tools"}` : r?.error || "Ping failed", r?.ok ? "ok" : "bad");
+});
+
+$("btnConnectNative")?.addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "setDriveMode", driveMode: "native" });
+  const r = await chrome.runtime.sendMessage({ type: "connectNativeHost" });
+  toast(r?.connected ? "Native host connected" : r?.lastError || "Not installed", r?.connected ? "ok" : "bad");
+  await refresh();
+});
+
+$("btnNativeInfo")?.addEventListener("click", async () => {
+  const r = await chrome.runtime.sendMessage({ type: "nativeHostInfo" });
+  const text = JSON.stringify(r?.manifestExample || r, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Host manifest template copied");
+  } catch {
+    toast(text.slice(0, 80), "ok");
+  }
+});
 
 $("btnSaveAdvanced")?.addEventListener("click", async () => {
   await chrome.runtime.sendMessage({
