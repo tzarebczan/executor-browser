@@ -7,353 +7,363 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Spline+Sans+Mono:wght@400;500;600;700&family=Spline+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
-    <header class="top">
-      <div class="brand">
-        <div class="logo" aria-hidden="true"></div>
-        <div>
-          <h1>Executor</h1>
-          <p class="tag mono" id="headerStatus">Connecting…</p>
+    <div class="chassis">
+      <header class="mast">
+        <div class="mast-brand">
+          <div class="mark" aria-hidden="true"><i></i></div>
+          <div class="mast-id">
+            <span class="wordmark">Executor<em>/Browser</em></span>
+            <span class="readout mono" id="headerStatus">Connecting…</span>
+          </div>
         </div>
-      </div>
-      <button type="button" class="icon-btn" id="btnRefresh" title="Refresh" aria-label="Refresh">↻</button>
-    </header>
+        <button type="button" class="icon-btn" id="btnRefresh" title="Re-check all links" aria-label="Re-check all links">↻</button>
+      </header>
 
-    <section class="setup-banner" id="setupBanner" hidden>
-      <div class="setup-steps" id="setupSteps"></div>
-      <div class="quick-row" id="quickActions"></div>
-    </section>
+      <section class="setup-banner" id="setupBanner" hidden>
+        <div class="setup-steps" id="setupSteps"></div>
+        <div class="quick-row" id="quickActions"></div>
+      </section>
 
-    <nav class="tabs" role="tablist" aria-label="Panel">
-      <button type="button" class="tab active" data-tab="home" role="tab" aria-selected="true">Home</button>
-      <button type="button" class="tab" data-tab="connect" role="tab" aria-selected="false" id="tabConnect">
-        <span id="connectTabLabel">Connect</span>
-        <span class="tab-dot" id="connectTabDot" hidden></span>
-      </button>
-      <button type="button" class="tab" data-tab="tabs" role="tab" aria-selected="false">
-        Tabs <span class="tab-count" id="tabCount">0</span>
-      </button>
-      <button type="button" class="tab" data-tab="more" role="tab" aria-selected="false">Agents</button>
-    </nav>
-
-    <!-- HOME -->
-    <section class="panel active" data-panel="home" role="tabpanel">
-      <div class="signal-rail" id="statusStrip" aria-label="Status">
-        <button type="button" class="signal" data-goto="connect" id="statExecutor" title="Executor">
-          <span class="led" id="executorLed" aria-hidden="true"></span>
-          <span class="sig-k">Executor</span>
-          <span class="sig-v mono" id="executorStat">…</span>
+      <nav class="tabs" role="tablist" aria-label="Panel">
+        <button type="button" class="tab active" data-tab="home" role="tab" aria-selected="true">Home</button>
+        <button type="button" class="tab" data-tab="connect" role="tab" aria-selected="false" id="tabConnect">
+          <span id="connectTabLabel">Connect</span>
+          <span class="tab-dot" id="connectTabDot" hidden></span>
         </button>
-        <button type="button" class="signal" data-goto="connect" id="statCompanion" title="Browser drive">
-          <span class="led" id="companionLed" aria-hidden="true"></span>
-          <span class="sig-k">Reverse</span>
-          <span class="sig-v mono" id="companionStat">—</span>
+        <button type="button" class="tab" data-tab="tabs" role="tab" aria-selected="false">
+          Tabs <span class="tab-count" id="tabCount">0</span>
         </button>
-        <button type="button" class="signal" data-goto="tabs" id="statTabs" title="Agent tabs">
-          <span class="led" id="tabsLed" aria-hidden="true"></span>
-          <span class="sig-k">Tabs</span>
-          <span class="sig-v mono" id="tabStat">0</span>
-        </button>
-      </div>
+        <button type="button" class="tab" data-tab="more" role="tab" aria-selected="false">Agents</button>
+      </nav>
 
-      <div class="preview-card">
-        <div class="preview-chrome">
-          <span class="urlbar" id="previewUrl">No preview yet</span>
-          <button
-            type="button"
-            class="ghost xs"
-            id="btnCapture"
-            title="Local JPEG preview of the agent tab — not sent to Executor"
-          >
-            Capture
+      <!-- HOME -->
+      <section class="panel active" data-panel="home" role="tabpanel">
+        <!-- Uplink spine: current flows Executor → bridge → tabs -->
+        <div class="spine" id="statusStrip" aria-label="Link status">
+          <button type="button" class="signal" data-goto="connect" id="statExecutor" title="Open Connect">
+            <span class="led" id="executorLed" aria-hidden="true"></span>
+            <span class="sig-k">Uplink</span>
+            <span class="sig-v mono" id="executorStat">…</span>
+            <span class="sig-d">Executor over Tailscale</span>
+          </button>
+          <button type="button" class="signal" data-goto="connect" id="statCompanion" title="Open Connect">
+            <span class="led" id="companionLed" aria-hidden="true"></span>
+            <span class="sig-k">Bridge</span>
+            <span class="sig-v mono" id="companionStat">—</span>
+            <span class="sig-d">Reverse drive channel for agents</span>
+          </button>
+          <button type="button" class="signal" data-goto="tabs" id="statTabs" title="Open Tabs">
+            <span class="led" id="tabsLed" aria-hidden="true"></span>
+            <span class="sig-k">Tabs</span>
+            <span class="sig-v mono" id="tabStat">0</span>
+            <span class="sig-d">Agent workspace in this Chrome</span>
           </button>
         </div>
-        <div class="preview-stage" id="previewStage">
-          <div class="preview-empty" id="previewEmpty">
-            <p id="previewEmptyTitle">Local preview</p>
-            <span id="previewEmptyHint">JPEG of agent tab · not sent to Executor. Open a tab, then Capture.</span>
-            <button type="button" class="primary sm" id="btnOpenTabHome">Open agent tab</button>
+
+        <div class="monitor">
+          <div class="monitor-head">
+            <span class="cap-label">Local preview</span>
+            <span class="urlbar mono" id="previewUrl">No capture yet</span>
+            <button
+              type="button"
+              class="ghost xs"
+              id="btnCapture"
+              title="JPEG of the agent tab, shown only here — never sent to Executor"
+            >
+              Capture
+            </button>
           </div>
-          <img id="previewImg" alt="Local tab preview" hidden />
-        </div>
-        <div class="preview-meta">
-          <span id="previewTitle">—</span>
-          <span class="preview-local" id="previewLocalTag">local only</span>
-          <span class="meta-right" id="previewError" hidden></span>
-        </div>
-      </div>
-
-      <div class="card compact">
-        <div class="card-head">
-          <h2>Activity</h2>
-          <button type="button" class="link" id="btnClearActivity">Clear</button>
-        </div>
-        <ul class="activity" id="activityList">
-          <li class="empty">Nothing yet</li>
-        </ul>
-      </div>
-    </section>
-
-    <!-- CONNECT -->
-    <section class="panel" data-panel="connect" role="tabpanel" hidden>
-      <div class="card" id="connectCard">
-        <div class="card-head">
-          <h2>Connection</h2>
-          <span class="badge" id="labBadge">Lab</span>
-        </div>
-
-        <!-- Primary state banner -->
-        <div class="conn-banner" id="connBanner" data-state="checking">
-          <span class="conn-dot" aria-hidden="true"></span>
-          <div class="conn-copy">
-            <strong id="connTitle">Checking…</strong>
-            <span id="connSub" class="conn-sub"></span>
-          </div>
-        </div>
-
-        <ul class="matrix" id="connectMatrix" aria-live="polite"></ul>
-
-        <!-- Credentials: visible when not connected; collapsible when connected -->
-        <div id="connectForm">
-          <div class="preset-row">
-            <button type="button" class="chip active" data-preset="lab">Lab</button>
-            <button type="button" class="chip" data-preset="custom">Custom</button>
-          </div>
-
-          <label class="field">
-            Base URL
-            <div class="field-row">
-              <input
-                id="executorUrl"
-                type="url"
-                placeholder="https://lab-agents…ts.net:8444"
-                autocomplete="off"
-              />
-              <button type="button" class="ghost sm" id="btnDetectExecutor" title="Probe lab">
-                Detect
-              </button>
+          <div class="preview-stage" id="previewStage">
+            <div class="preview-empty" id="previewEmpty">
+              <p id="previewEmptyTitle">Nothing captured</p>
+              <span id="previewEmptyHint"
+                >A JPEG for your eyes only — never sent to Executor. Open an agent tab, then Capture.</span
+              >
+              <button type="button" class="primary sm" id="btnOpenTabHome">Open agent tab</button>
             </div>
-          </label>
-
-          <label class="field">
-            API key
-            <input
-              id="executorApiKey"
-              type="password"
-              placeholder="Personal API key"
-              autocomplete="off"
-            />
-          </label>
-
-          <div class="actions stack" id="connectActions">
-            <button type="button" class="primary" id="btnConnect">Connect</button>
-            <button type="button" class="ghost" id="btnTestExecutor">Test reachability</button>
+            <img id="previewImg" alt="Local preview of the agent tab" hidden />
+          </div>
+          <div class="monitor-foot">
+            <span id="previewTitle">—</span>
+            <span class="meta-right" id="previewError" hidden></span>
+            <span class="preview-local" id="previewLocalTag">Stays local</span>
           </div>
         </div>
 
-        <div class="actions" id="connectedActions" hidden>
-          <button type="button" class="ghost sm" id="btnReconnect">Re-check</button>
-          <button type="button" class="ghost sm" id="btnEditConnection">Edit</button>
-          <button type="button" class="ghost sm" id="btnDisconnect">Disconnect</button>
-        </div>
-
-        <p class="hint" id="connectHint" role="status"></p>
-      </div>
-
-      <div class="mx-group connect-opt" id="connectOptional">
-        <div class="mx-group-head">
-          <span>Browser drive</span>
-          <span class="mx-tag" id="driveModeTag">B · reverse</span>
-        </div>
-        <p class="mx-blurb" id="connectDriveBlurb">
-          Default: extension reverse channel (no local script). Connect starts it after API auth.
-        </p>
-        <ul class="matrix" id="connectMatrixOpt" aria-live="polite"></ul>
-        <div class="preset-row" id="driveModeRow">
-          <button type="button" class="chip active" data-drive="reverse">Extension (B)</button>
-          <button type="button" class="chip" data-drive="native">Native host (C)</button>
-          <button type="button" class="chip" data-drive="companion">Companion</button>
-        </div>
-        <div class="actions">
-          <button type="button" class="ghost sm" id="btnStartDrive">Enable drive</button>
-          <button type="button" class="ghost sm" id="btnPingDrive">Ping tools</button>
-        </div>
-      </div>
-
-      <!-- Advanced: native host + legacy companion -->
-      <details class="adv below-fold" id="advPanel">
-        <summary>
-          Advanced
-          <span class="muted" id="advSummary">native · companion</span>
-        </summary>
-
-        <div class="card compact" style="margin: 8px 0; padding: 8px">
-          <h2 style="margin: 0 0 6px">C · Native messaging host</h2>
-          <p class="hint tight">
-            Host <strong>manifest alone is not enough</strong> — it points Chrome at a binary.
-            One-time install (no always-on script). Full CDP when host is present.
-          </p>
-          <p class="hint tight" id="nativeHostHint">Host: com.executor.browser</p>
-          <div class="actions">
-            <button type="button" class="primary sm" id="btnConnectNative">Connect host</button>
-            <button type="button" class="ghost sm" id="btnNativeInfo">Copy install JSON</button>
+        <div class="module">
+          <div class="module-head">
+            <h2>Activity</h2>
+            <button type="button" class="link" id="btnClearActivity">Clear</button>
           </div>
+          <ul class="activity" id="activityList">
+            <li class="empty">Nothing yet</li>
+          </ul>
         </div>
+      </section>
 
-        <p class="hint tight">
-          <strong>Legacy lab:</strong> companion on :9230 (Node). Prefer B unless you need full DevTools MCP.
-        </p>
+      <!-- CONNECT -->
+      <section class="panel" data-panel="connect" role="tabpanel" hidden>
+        <div class="module" id="connectCard">
+          <div class="module-head">
+            <h2>Uplink</h2>
+            <span class="badge" id="labBadge">Lab</span>
+          </div>
 
-        <ul class="matrix tight" id="advMatrix"></ul>
-
-        <div class="install-steps" id="companionInstall">
-          <div class="install-step">
-            <span class="n">1</span>
-            <div>
-              <strong>Remote debugging</strong>
-              <p class="hint tight"><code>chrome://inspect/#remote-debugging</code> → Allow</p>
-              <button type="button" class="ghost sm" id="btnDebug">Open</button>
+          <div class="conn-banner" id="connBanner" data-state="checking">
+            <span class="conn-dot" aria-hidden="true"></span>
+            <div class="conn-copy">
+              <strong id="connTitle">Checking…</strong>
+              <span id="connSub" class="conn-sub"></span>
             </div>
           </div>
-          <div class="install-step">
-            <span class="n">2</span>
-            <div>
-              <strong>Companion (lab)</strong>
-              <pre class="cmd" id="companionCmd">node infra/host/chrome-agent/start-companion.mjs</pre>
-              <div class="actions">
-                <button type="button" class="ghost sm" id="btnCopyCompanionCmd">Copy</button>
-                <button type="button" class="ghost sm" id="btnRecheckCompanion">Recheck</button>
-              </div>
+
+          <ul class="matrix" id="connectMatrix" aria-live="polite"></ul>
+
+          <!-- Credentials: visible until connected; Edit reopens -->
+          <div id="connectForm">
+            <div class="preset-row">
+              <button type="button" class="chip active" data-preset="lab">Lab</button>
+              <button type="button" class="chip" data-preset="custom">Custom</button>
             </div>
-          </div>
-          <div class="install-step">
-            <span class="n">3</span>
-            <div>
-              <strong>MCP endpoint</strong>
-              <label class="field">
+
+            <label class="field">
+              Base URL
+              <div class="field-row">
                 <input
-                  id="publicEndpoint"
+                  id="executorUrl"
                   type="url"
-                  placeholder="http://100.x.x.x:9230/mcp"
+                  placeholder="https://lab-agents…ts.net:8444"
                   autocomplete="off"
                 />
-              </label>
-              <div class="actions">
-                <button type="button" class="ghost sm" id="btnDetectTs">Detect TS IP</button>
-                <button type="button" class="primary sm" id="btnRegisterAutomation">Register</button>
+                <button type="button" class="ghost sm" id="btnDetectExecutor" title="Probe known lab URLs">
+                  Detect
+                </button>
               </div>
+            </label>
+
+            <label class="field">
+              API key
+              <input
+                id="executorApiKey"
+                type="password"
+                placeholder="Personal API key"
+                autocomplete="off"
+              />
+            </label>
+
+            <div class="actions stack" id="connectActions">
+              <button type="button" class="primary" id="btnConnect">Connect</button>
+              <button type="button" class="ghost" id="btnTestExecutor">Test reachability</button>
+            </div>
+          </div>
+
+          <div class="actions" id="connectedActions" hidden>
+            <button type="button" class="ghost sm" id="btnReconnect">Re-check</button>
+            <button type="button" class="ghost sm" id="btnEditConnection">Edit</button>
+            <button type="button" class="ghost sm" id="btnDisconnect">Disconnect</button>
+          </div>
+
+          <p class="hint" id="connectHint" role="status"></p>
+        </div>
+
+        <div class="module">
+          <div class="mx-group connect-opt" id="connectOptional">
+            <div class="mx-group-head">
+              <span>Browser drive</span>
+              <span class="mx-tag" id="driveModeTag">B · reverse</span>
+            </div>
+            <p class="mx-blurb" id="connectDriveBlurb">
+              Default: extension reverse channel — no local script. Connect starts it after the key is verified.
+            </p>
+            <ul class="matrix" id="connectMatrixOpt" aria-live="polite"></ul>
+            <div class="preset-row" id="driveModeRow">
+              <button type="button" class="chip active" data-drive="reverse">Extension (B)</button>
+              <button type="button" class="chip" data-drive="native">Native host (C)</button>
+              <button type="button" class="chip" data-drive="companion">Companion</button>
+            </div>
+            <div class="actions">
+              <button type="button" class="ghost sm" id="btnStartDrive">Enable drive</button>
+              <button type="button" class="ghost sm" id="btnPingDrive">Ping tools</button>
             </div>
           </div>
         </div>
 
-        <label class="field">
-          Health URL
-          <input id="healthUrl" type="url" placeholder="http://127.0.0.1:9230/healthz" autocomplete="off" />
-        </label>
-        <label class="field">
-          Local MCP
-          <input id="mcpUrl" type="url" placeholder="http://127.0.0.1:9230/mcp" autocomplete="off" />
-        </label>
-        <label class="field">
-          Tab group
-          <input id="groupTitle" type="text" placeholder="Executor" autocomplete="off" />
-        </label>
-        <div class="actions">
-          <button type="button" class="ghost sm" id="btnSaveAdvanced">Save</button>
-        </div>
-        <p class="hint" id="advancedHint" role="status"></p>
-      </details>
-    </section>
+        <!-- Advanced: native host + legacy companion, below the fold -->
+        <details class="adv below-fold" id="advPanel">
+          <summary>
+            Advanced
+            <span class="muted" id="advSummary">native · companion</span>
+          </summary>
 
-    <!-- TABS -->
-    <section class="panel" data-panel="tabs" role="tabpanel" hidden>
-      <div class="card">
-        <div class="card-head">
-          <h2>Agent group</h2>
-          <span class="badge soft" id="groupBadge">Executor</span>
-        </div>
-        <div class="actions">
-          <button type="button" class="primary" id="btnOpenTab">Open tab</button>
-          <button type="button" class="ghost" id="btnCaptureTabs">Capture active</button>
-        </div>
-        <ul class="tab-list" id="tabList">
-          <li class="empty">No agent tabs</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <h2>Mode</h2>
-        <label class="radio">
-          <input type="radio" name="mode" value="existing" checked />
-          <span>
-            <strong>This Chrome</strong>
-            <small>Keep logins · optional CDP</small>
-          </span>
-        </label>
-        <label class="radio">
-          <input type="radio" name="mode" value="fresh" />
-          <span>
-            <strong>Fresh profile</strong>
-            <small>Isolated · needs companion</small>
-          </span>
-        </label>
-        <label class="radio">
-          <input type="radio" name="mode" value="extension-only" />
-          <span>
-            <strong>Extension only</strong>
-            <small>Groups + preview</small>
-          </span>
-        </label>
-      </div>
-    </section>
-
-    <!-- AGENTS: core vs optional + short prompt -->
-    <section class="panel" data-panel="more" role="tabpanel" hidden>
-      <div class="card">
-        <div class="card-head">
-          <h2>Status</h2>
-          <span class="badge soft" id="useBadge">—</span>
-        </div>
-
-        <div class="mx-group">
-          <div class="mx-group-head">
-            <span>Core</span>
-            <span class="mx-tag" id="coreTag">required</span>
+          <div class="adv-block">
+            <h2>C · Native messaging host</h2>
+            <p class="hint tight">
+              The host manifest alone is not enough — it points Chrome at a binary. One-time install,
+              no always-on script. Full CDP once the host is present.
+            </p>
+            <p class="hint tight" id="nativeHostHint">Host: com.executor.browser</p>
+            <div class="actions">
+              <button type="button" class="primary sm" id="btnConnectNative">Connect host</button>
+              <button type="button" class="ghost sm" id="btnNativeInfo">Copy install JSON</button>
+            </div>
           </div>
-          <ul class="matrix" id="agentMatrixCore" aria-live="polite"></ul>
-        </div>
 
-        <div class="mx-group optional">
-          <div class="mx-group-head">
-            <span>Browser drive</span>
-            <span class="mx-tag optional-tag">path B</span>
-          </div>
-          <p class="mx-blurb" id="driveBlurb">
-            Extension reverse channel. Agents use tools.browser.user.desktop — not the Capture button.
+          <p class="hint tight">
+            <strong>Legacy lab:</strong> companion on :9230 (Node). Prefer B unless you need full DevTools MCP.
           </p>
-          <ul class="matrix" id="agentMatrixDrive" aria-live="polite"></ul>
+
+          <ul class="matrix tight" id="advMatrix"></ul>
+
+          <div class="install-steps" id="companionInstall">
+            <div class="install-step">
+              <span class="n">1</span>
+              <div>
+                <strong>Remote debugging</strong>
+                <p class="hint tight"><code>chrome://inspect/#remote-debugging</code> → Allow</p>
+                <button type="button" class="ghost sm" id="btnDebug">Open</button>
+              </div>
+            </div>
+            <div class="install-step">
+              <span class="n">2</span>
+              <div>
+                <strong>Companion (lab)</strong>
+                <pre class="cmd" id="companionCmd">node infra/host/chrome-agent/start-companion.mjs</pre>
+                <div class="actions">
+                  <button type="button" class="ghost sm" id="btnCopyCompanionCmd">Copy</button>
+                  <button type="button" class="ghost sm" id="btnRecheckCompanion">Recheck</button>
+                </div>
+              </div>
+            </div>
+            <div class="install-step">
+              <span class="n">3</span>
+              <div>
+                <strong>MCP endpoint</strong>
+                <label class="field">
+                  <input
+                    id="publicEndpoint"
+                    type="url"
+                    placeholder="http://100.x.x.x:9230/mcp"
+                    autocomplete="off"
+                  />
+                </label>
+                <div class="actions">
+                  <button type="button" class="ghost sm" id="btnDetectTs">Detect TS IP</button>
+                  <button type="button" class="primary sm" id="btnRegisterAutomation">Register</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <label class="field">
+            Health URL
+            <input id="healthUrl" type="url" placeholder="http://127.0.0.1:9230/healthz" autocomplete="off" />
+          </label>
+          <label class="field">
+            Local MCP
+            <input id="mcpUrl" type="url" placeholder="http://127.0.0.1:9230/mcp" autocomplete="off" />
+          </label>
+          <label class="field">
+            Tab group
+            <input id="groupTitle" type="text" placeholder="Executor" autocomplete="off" />
+          </label>
+          <div class="actions">
+            <button type="button" class="ghost sm" id="btnSaveAdvanced">Save</button>
+          </div>
+          <p class="hint" id="advancedHint" role="status"></p>
+        </details>
+      </section>
+
+      <!-- TABS -->
+      <section class="panel" data-panel="tabs" role="tabpanel" hidden>
+        <div class="module">
+          <div class="module-head">
+            <h2>Agent group</h2>
+            <span class="badge soft" id="groupBadge">Executor</span>
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="btnOpenTab">Open tab</button>
+            <button type="button" class="ghost" id="btnCaptureTabs">Capture active</button>
+          </div>
+          <ul class="tab-list" id="tabList" style="margin-top: 10px">
+            <li class="empty">No agent tabs</li>
+          </ul>
         </div>
 
-        <p class="hint tight" id="nextHint"></p>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <h2>Agent prompt</h2>
-          <button type="button" class="link" id="btnCopyAgentPrompt">Copy</button>
+        <div class="module">
+          <h2>Mode</h2>
+          <label class="radio">
+            <input type="radio" name="mode" value="existing" checked />
+            <span>
+              <strong>This Chrome</strong>
+              <small>Keep logins · optional CDP</small>
+            </span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="mode" value="fresh" />
+            <span>
+              <strong>Fresh profile</strong>
+              <small>Isolated · needs companion</small>
+            </span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="mode" value="extension-only" />
+            <span>
+              <strong>Extension only</strong>
+              <small>Groups + preview</small>
+            </span>
+          </label>
         </div>
-        <textarea id="agentPrompt" rows="4" readonly class="prompt-box"></textarea>
-      </div>
+      </section>
 
-      <footer class="inline-foot">
-        <span id="versionLabel">v0.6.0</span>
-      </footer>
-    </section>
+      <!-- AGENTS -->
+      <section class="panel" data-panel="more" role="tabpanel" hidden>
+        <div class="module">
+          <div class="module-head">
+            <h2>Status</h2>
+            <span class="badge soft" id="useBadge">—</span>
+          </div>
+
+          <div class="mx-group">
+            <div class="mx-group-head">
+              <span>Core</span>
+              <span class="mx-tag" id="coreTag">required</span>
+            </div>
+            <ul class="matrix" id="agentMatrixCore" aria-live="polite"></ul>
+          </div>
+
+          <div class="mx-group optional">
+            <div class="mx-group-head">
+              <span>Browser drive</span>
+              <span class="mx-tag optional-tag">path B</span>
+            </div>
+            <p class="mx-blurb" id="driveBlurb">
+              Extension reverse channel. Agents use tools.browser.user.desktop — not the Capture button.
+            </p>
+            <ul class="matrix" id="agentMatrixDrive" aria-live="polite"></ul>
+          </div>
+
+          <p class="hint tight" id="nextHint"></p>
+        </div>
+
+        <div class="module">
+          <div class="module-head">
+            <h2>Agent prompt</h2>
+            <button type="button" class="link" id="btnCopyAgentPrompt">Copy</button>
+          </div>
+          <textarea id="agentPrompt" rows="4" readonly class="prompt-box"></textarea>
+        </div>
+
+        <footer class="inline-foot">
+          <span id="versionLabel">v0.7.1 · patch bay</span>
+        </footer>
+      </section>
+    </div>
 
     <script src="sidebar.js" type="module"></script>
   </body>

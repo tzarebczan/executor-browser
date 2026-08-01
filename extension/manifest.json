@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Executor Browser",
-  "version": "0.6.0",
+  "version": "0.7.1",
   "description": "Connect Chrome to Executor over Tailscale. Browser drive via extension reverse channel (default) or native host.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -32,9 +32,7 @@
     "sidePanel",
     "tabGroups",
     "tabs",
-    "activeTab",
     "scripting",
-    "notifications",
     "alarms",
     "nativeMessaging"
   ],
@@ -42,12 +40,5 @@
     "<all_urls>",
     "http://127.0.0.1/*",
     "http://localhost/*"
-  ],
-  "externally_connectable": {
-    "matches": [
-      "https://tbd.jiggytom.com/*",
-      "http://localhost:3000/*",
-      "https://*.ts.net/*"
-    ]
-  }
+  ]
 }

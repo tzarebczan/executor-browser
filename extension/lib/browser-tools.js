@@ -4,6 +4,26 @@
  */
 
 const GROUP_TITLE_DEFAULT = "Executor";
+const GROUP_STORAGE_KEY = "executorAgentGroupId";
+/** tabId → { url, nodes } — invalidated on navigate / URL change / size cap */
+const snapshotHandles = new Map();
+const SNAPSHOT_HANDLE_MAX = 24;
+
+function clearSnapshotHandle(tabId) {
+  if (tabId != null) snapshotHandles.delete(Number(tabId));
+}
+
+function rememberSnapshot(tabId, snapshot) {
+  if (tabId == null || !snapshot) return;
+  snapshotHandles.set(Number(tabId), {
+    url: snapshot.url,
+    nodes: snapshot.nodes,
+  });
+  while (snapshotHandles.size > SNAPSHOT_HANDLE_MAX) {
+    const oldest = snapshotHandles.keys().next().value;
+    snapshotHandles.delete(oldest);
+  }
+}
 
 async function getGroupTitle() {
   try {
@@ -15,10 +35,8 @@ async function getGroupTitle() {
 }
 
 async function listAgentTabs() {
-  const title = await getGroupTitle();
-  const groups = await chrome.tabGroups.query({ title });
-  if (!groups.length) return [];
-  const groupId = groups[0].id;
+  const groupId = await getOwnedGroupId();
+  if (groupId == null) return [];
   const tabs = await chrome.tabs.query({});
   return tabs
     .filter((t) => t.groupId === groupId)
@@ -31,13 +49,26 @@ async function listAgentTabs() {
     }));
 }
 
+async function getOwnedGroupId() {
+  const stored = await chrome.storage.local.get(GROUP_STORAGE_KEY);
+  const groupId = stored?.[GROUP_STORAGE_KEY];
+  if (!Number.isInteger(groupId)) return null;
+  try {
+    await chrome.tabGroups.get(groupId);
+    return groupId;
+  } catch {
+    await chrome.storage.local.remove(GROUP_STORAGE_KEY);
+    return null;
+  }
+}
+
 async function ensureGroup(tabIds) {
   const title = await getGroupTitle();
-  const groups = await chrome.tabGroups.query({ title });
-  let groupId = groups[0]?.id;
+  let groupId = await getOwnedGroupId();
   if (groupId == null && tabIds?.length) {
     groupId = await chrome.tabs.group({ tabIds });
     await chrome.tabGroups.update(groupId, { title, color: "blue", collapsed: false });
+    await chrome.storage.local.set({ [GROUP_STORAGE_KEY]: groupId });
   } else if (groupId != null && tabIds?.length) {
     await chrome.tabs.group({ tabIds, groupId });
   }
@@ -45,18 +76,20 @@ async function ensureGroup(tabIds) {
 }
 
 async function resolveTab(tabId) {
+  const groupId = await getOwnedGroupId();
+  if (groupId == null) return null;
   if (tabId != null) {
     try {
-      return await chrome.tabs.get(Number(tabId));
+      const tab = await chrome.tabs.get(Number(tabId));
+      return tab.groupId === groupId ? tab : null;
     } catch {
-      /* fall through */
+      return null;
     }
   }
   const agent = await listAgentTabs();
   const preferred = agent.find((t) => t.active) || agent[0];
   if (preferred) return chrome.tabs.get(preferred.id);
-  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return active || null;
+  return null;
 }
 
 function isRestrictedUrl(url = "") {
@@ -75,6 +108,25 @@ async function takeSnapshot(tabId) {
     func: () => {
       const max = 200;
       const nodes = [];
+      const selectorFor = (el) => {
+        if (el === document.body) return "body";
+        if (el.id) return `#${CSS.escape(el.id)}`;
+        const path = [];
+        let current = el;
+        while (current && current !== document.body) {
+          const tag = current.tagName.toLowerCase();
+          const siblings = current.parentElement
+            ? [...current.parentElement.children].filter(
+                (candidate) => candidate.tagName === current.tagName,
+              )
+            : [];
+          const suffix =
+            siblings.length > 1 ? `:nth-of-type(${siblings.indexOf(current) + 1})` : "";
+          path.unshift(`${tag}${suffix}`);
+          current = current.parentElement;
+        }
+        return `body > ${path.join(" > ")}`;
+      };
       const walk = (el, depth) => {
         if (nodes.length >= max || depth > 8) return;
         if (!(el instanceof Element)) return;
@@ -103,6 +155,7 @@ async function takeSnapshot(tabId) {
               name: name.slice(0, 100) || undefined,
               href: tag === "a" ? el.getAttribute("href") || undefined : undefined,
               type: tag === "input" ? el.getAttribute("type") || undefined : undefined,
+              selector: selectorFor(el),
               x: Math.round(r.x + r.width / 2),
               y: Math.round(r.y + r.height / 2),
             });
@@ -118,49 +171,39 @@ async function takeSnapshot(tabId) {
       };
     },
   });
+  if (result?.url && Array.isArray(result.nodes)) {
+    rememberSnapshot(tab.id, result);
+  }
   return { ok: true, tab: { id: tab.id, url: tab.url, title: tab.title }, snapshot: result };
 }
 
 async function clickAt(tabId, { x, y, selector, nodeIndex } = {}) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No tab" };
+  if (!tab?.id) return { ok: false, error: "No Executor-group tab" };
   if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
+
+  if (!selector && x == null && y == null && nodeIndex != null) {
+    const cached = snapshotHandles.get(tab.id);
+    // Require URL match so navigations can't reuse stale node coordinates
+    const handle =
+      cached && cached.url === tab.url ? cached.nodes?.[nodeIndex] : null;
+    if (!handle) {
+      clearSnapshotHandle(tab.id);
+      return { ok: false, error: "Snapshot handle expired; take a new snapshot" };
+    }
+    selector = handle.selector;
+    x = handle.x;
+    y = handle.y;
+  }
 
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    args: [{ x, y, selector, nodeIndex }],
+    args: [{ x, y, selector }],
     func: (opts) => {
       let el = null;
       if (opts.selector) el = document.querySelector(opts.selector);
       if (!el && opts.x != null && opts.y != null) {
         el = document.elementFromPoint(opts.x, opts.y);
-      }
-      if (!el && opts.nodeIndex != null) {
-        // Rebuild same walk as snapshot — best-effort by index among interactive
-        const list = [];
-        const walk = (node, depth) => {
-          if (list.length > 200 || depth > 8) return;
-          if (!(node instanceof Element)) return;
-          const tag = node.tagName.toLowerCase();
-          if (["script", "style", "noscript", "svg", "path"].includes(tag)) return;
-          const role = node.getAttribute("role") || "";
-          const name =
-            node.getAttribute("aria-label") ||
-            node.getAttribute("placeholder") ||
-            (node.innerText || "").trim().slice(0, 80) ||
-            "";
-          const interactive =
-            ["a", "button", "input", "textarea", "select"].includes(tag) ||
-            role === "button" ||
-            node.tabIndex >= 0;
-          if (interactive || (name && name.length > 1)) {
-            const r = node.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0) list.push(node);
-          }
-          for (const c of node.children) walk(c, depth + 1);
-        };
-        walk(document.body, 0);
-        el = list[opts.nodeIndex] || null;
       }
       if (!el) return { ok: false, error: "Element not found" };
       el.scrollIntoView({ block: "center", inline: "center" });
@@ -178,7 +221,8 @@ async function clickAt(tabId, { x, y, selector, nodeIndex } = {}) {
 
 async function typeText(tabId, { text, selector, submit } = {}) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No tab" };
+  if (!tab?.id) return { ok: false, error: "No Executor-group tab" };
+  if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
   if (text == null) return { ok: false, error: "text required" };
 
   const [{ result }] = await chrome.scripting.executeScript({
@@ -205,8 +249,12 @@ async function typeText(tabId, { text, selector, submit } = {}) {
       }
       if (opts.submit) {
         const form = el.closest("form");
-        if (form) form.requestSubmit?.() || form.submit();
-        else el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        if (form) {
+          if (typeof form.requestSubmit === "function") form.requestSubmit();
+          else form.submit();
+        } else {
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        }
       }
       return { ok: true, tag: el.tagName.toLowerCase() };
     },
@@ -214,19 +262,30 @@ async function typeText(tabId, { text, selector, submit } = {}) {
   return { ...result, tabId: tab.id };
 }
 
-async function navigate(tabId, { url, newTab } = {}) {
+async function navigate(tabId, { url, newTab, active = true } = {}) {
   if (!url) return { ok: false, error: "url required" };
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return { ok: false, error: "Only http(s) URLs are allowed" };
+    }
+  } catch {
+    return { ok: false, error: "Only http(s) URLs are allowed" };
+  }
   if (newTab) {
-    const tab = await chrome.tabs.create({ url, active: true });
+    const tab = await chrome.tabs.create({ url, active });
     await ensureGroup([tab.id]);
+    clearSnapshotHandle(tab.id);
     return { ok: true, tab: { id: tab.id, url: tab.url } };
   }
   const tab = await resolveTab(tabId);
   if (!tab?.id) {
     const created = await chrome.tabs.create({ url, active: true });
     await ensureGroup([created.id]);
+    clearSnapshotHandle(created.id);
     return { ok: true, tab: { id: created.id, url } };
   }
+  clearSnapshotHandle(tab.id);
   await chrome.tabs.update(tab.id, { url });
   return { ok: true, tab: { id: tab.id, url } };
 }
@@ -266,12 +325,9 @@ async function screenshot(tabId) {
   return {
     ok: true,
     tab: { id: tab.id, url: tab.url, title: tab.title },
-    // Keep payload small in bridge results
-    dataUrl: dataUrl.slice(0, 120) + "…",
+    dataUrl,
     bytes: dataUrl.length,
     mime: "image/jpeg",
-    // full only for local callers that need it
-    _fullDataUrl: dataUrl,
   };
 }
 
@@ -293,12 +349,7 @@ export async function runBrowserTool(tool, args = {}) {
     case "tabs.open":
     case "open_tab":
     case "openTab": {
-      const tab = await chrome.tabs.create({
-        url: args.url || "about:blank",
-        active: args.active !== false,
-      });
-      await ensureGroup([tab.id]);
-      return { ok: true, tab: { id: tab.id, url: tab.url } };
+      return navigate(null, { url: args.url, newTab: true, active: args.active !== false });
     }
 
     case "navigate":
@@ -319,10 +370,7 @@ export async function runBrowserTool(tool, args = {}) {
 
     case "screenshot":
     case "capture": {
-      const res = await screenshot(tabId);
-      if (args.full) return { ...res, dataUrl: res._fullDataUrl };
-      const { _fullDataUrl, ...rest } = res;
-      return rest;
+      return screenshot(tabId);
     }
 
     case "ping":

@@ -10,7 +10,7 @@
  *   POST  {base}/api/browser-bridge/session/:id/result
  *   DELETE {base}/api/browser-bridge/session/:id
  *
- * Also accepts jobs via chrome.runtime messages (local / product web).
+ * Local extension pages may also invoke the same dispatcher via chrome.runtime messages.
  */
 
 import { runBrowserTool, BROWSER_TOOLS_META } from "./browser-tools.js";
@@ -93,7 +93,7 @@ export async function startReverseBridge(getSettings, pushActivity) {
       body: JSON.stringify({
         kind: "chrome-extension",
         transport: "reverse-longpoll",
-        client: { name: "executor-browser", version: "0.6.0" },
+        client: { name: "executor-browser", version: "0.7.1" },
         capabilities: BROWSER_TOOLS_META,
         connection: { integration: "chrome", name: "desktop", owner: "user" },
       }),
@@ -105,10 +105,9 @@ export async function startReverseBridge(getSettings, pushActivity) {
         "Executor has no browser-bridge API yet — extension tools ready; server path pending";
       await pushActivity?.({
         kind: "bridge",
-        message: "Reverse channel: server endpoint missing (tools local-ready)",
+        message: "Reverse channel unavailable: server endpoint missing",
       });
-      // Stay "running" in local-only accept mode (external messages still work)
-      mode = "local-ready";
+      running = false;
       return getReverseStatus();
     }
 
@@ -137,11 +136,12 @@ export async function startReverseBridge(getSettings, pushActivity) {
     });
   } catch (e) {
     if (abort?.signal.aborted) return getReverseStatus();
-    mode = "local-ready";
+    mode = "error";
+    running = false;
     lastError = String(e?.message || e);
     await pushActivity?.({
       kind: "bridge",
-      message: "Reverse session open failed — local tool path only",
+      message: "Reverse session open failed; retrying on keepalive",
     });
   }
 
@@ -216,24 +216,25 @@ async function pollLoop(getSettings, pushActivity) {
 async function postResult(settings, jobId, result) {
   if (!sessionId || !jobId) return;
   const base = baseUrl(settings);
-  // Strip huge payloads
   const payload = { ...result };
-  delete payload._fullDataUrl;
-  if (payload.dataUrl && String(payload.dataUrl).length > 200) {
-    payload.dataUrl = String(payload.dataUrl).slice(0, 80) + "…";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(
+        `${base}/api/browser-bridge/session/${encodeURIComponent(sessionId)}/result`,
+        {
+          method: "POST",
+          headers: await authHeaders(settings),
+          body: JSON.stringify({ jobId, result: payload }),
+        },
+      );
+      if (response.ok) return;
+      lastError = `result ${response.status}`;
+    } catch (error) {
+      lastError = String(error?.message || error);
+    }
+    if (attempt === 0) await sleep(500);
   }
-  try {
-    await fetch(
-      `${base}/api/browser-bridge/session/${encodeURIComponent(sessionId)}/result`,
-      {
-        method: "POST",
-        headers: await authHeaders(settings),
-        body: JSON.stringify({ jobId, result: payload }),
-      },
-    );
-  } catch {
-    /* ignore */
-  }
+  throw new Error(lastError || "Could not return browser tool result");
 }
 
 function sleep(ms) {

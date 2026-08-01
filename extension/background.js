@@ -29,7 +29,6 @@ const DEFAULTS = {
   companionPort: 9230,
   executorUrl: "",
   executorApiKey: "",
-  pairToken: "",
   publicEndpoint: "",
   registeredAt: 0,
   /** true after successful companion MCP register with Executor */
@@ -103,7 +102,7 @@ async function probeCompanionMcp() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.7.0" },
+          clientInfo: { name: "executor-browser", version: "0.7.1" },
         },
       }),
     });
@@ -388,12 +387,14 @@ async function verifyExecutorAuth() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.7.0" },
+          clientInfo: { name: "executor-browser", version: "0.7.1" },
         },
       }),
     });
     const text = await r.text();
     if (r.status === 401 || r.status === 403) {
+      await setSettings({ registeredAt: 0 });
+      await stopReverseBridge();
       return { ok: false, error: "Invalid API key (401/403)", status: r.status };
     }
     if (!r.ok) {
@@ -565,7 +566,7 @@ async function registerWithExecutor({ endpoint }) {
     params: {
       protocolVersion: "2024-11-05",
       capabilities: {},
-      clientInfo: { name: "executor-browser", version: "0.7.0" },
+      clientInfo: { name: "executor-browser", version: "0.7.1" },
     },
   });
   if (!init.ok) {
@@ -669,7 +670,7 @@ chrome.alarms.onAlarm.addListener(async (a) => {
     const s = await getSettings();
     if ((s.driveMode || "reverse") === "reverse" && s.executorApiKey && s.executorUrl) {
       const st = getReverseStatus();
-      if (!st.running || st.mode === "idle" || st.mode === "error") {
+      if (!st.running || st.mode === "idle" || st.mode === "error" || st.mode === "unsupported") {
         startReverseBridge(getSettings, pushActivity).catch(() => {});
       }
     }
@@ -681,7 +682,7 @@ chrome.alarms.onAlarm.addListener(async (a) => {
   let ok = Boolean(s.registeredAt && s.executorApiKey);
   if (drive === "reverse") {
     const st = getReverseStatus();
-    ok = ok && (st.mode === "reverse" || st.mode === "local-ready" || st.running);
+    ok = ok && st.mode === "reverse" && st.running;
   } else if (drive === "companion") {
     const c = await checkCompanion();
     ok = c.ok;
@@ -705,10 +706,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const reverse = getReverseStatus();
         const native = getNativeStatus();
         const driveMode = settings.driveMode || "reverse";
-        // "browser drive ready" for UI: reverse local-ready/session, native connected, or companion registered
+        // Browser drive is ready only with a live reverse session, native host, or companion.
         const driveReady =
-          (driveMode === "reverse" &&
-            (reverse.mode === "reverse" || reverse.mode === "local-ready")) ||
+          (driveMode === "reverse" && reverse.mode === "reverse" && reverse.running) ||
           (driveMode === "native" && native.connected) ||
           (driveMode === "companion" && Boolean(settings.chromeRegistered) && companion.ok);
         sendResponse({
@@ -847,38 +847,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       default:
         sendResponse({ ok: false, error: "unknown message type" });
     }
-  })().catch((e) => sendResponse({ ok: false, error: String(e) }));
-  return true;
-});
-
-// External: product web pair + browser tools (path B without Executor bridge API yet)
-chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
-  (async () => {
-    if (msg?.type === "pairFromWeb") {
-      await setSettings({
-        pairToken: msg.pairToken || "",
-        executorUrl: msg.executorUrl || "",
-        pairedAt: Date.now(),
-      });
-      await pushActivity({ kind: "pair", message: "Paired from web" });
-      sendResponse({ ok: true });
-      return;
-    }
-    if (msg?.type === "browserTool" || msg?.type === "chromeTool") {
-      const result = await runDriveTool(msg.tool || msg.name, msg.args || msg.arguments || {});
-      sendResponse(result);
-      return;
-    }
-    if (msg?.type === "bridgeStatus") {
-      sendResponse({
-        ok: true,
-        reverse: getReverseStatus(),
-        native: getNativeStatus(),
-        tools: BROWSER_TOOLS_META,
-      });
-      return;
-    }
-    sendResponse({ ok: false, error: "unknown external message" });
   })().catch((e) => sendResponse({ ok: false, error: String(e) }));
   return true;
 });

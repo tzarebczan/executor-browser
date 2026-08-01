@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+
+test("does not expose browser control to web pages", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../extension/manifest.json", import.meta.url)));
+  const background = await readFile(new URL("../extension/background.js", import.meta.url), "utf8");
+
+  assert.equal(manifest.externally_connectable, undefined);
+  assert.doesNotMatch(background, /onMessageExternal/);
+  assert.doesNotMatch(background, /pairFromWeb/);
+});
+
+test("does not truncate reverse-bridge screenshot results", async () => {
+  const reverseBridge = await readFile(
+    new URL("../extension/lib/reverse-bridge.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(reverseBridge, /delete payload\._fullDataUrl/);
+  assert.doesNotMatch(reverseBridge, /payload\.dataUrl\s*=/);
+});
+
+test("manifest version matches reverse-bridge client version", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../extension/manifest.json", import.meta.url)));
+  const reverseBridge = await readFile(
+    new URL("../extension/lib/reverse-bridge.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(reverseBridge, new RegExp(`version: "${manifest.version}"`));
+});
