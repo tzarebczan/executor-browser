@@ -15,6 +15,8 @@ const DEFAULTS = {
   executorUrl: "",
   executorApiKey: "",
   pairToken: "",
+  publicEndpoint: "",
+  registeredAt: 0,
   mode: "existing", // existing | fresh | extension-only
   tailscaleHint: "",
   groupTitle: "Executor",
@@ -137,37 +139,83 @@ async function openAgentTab(url) {
   return tab;
 }
 
-async function capturePreview() {
+/**
+ * Capture the visible tab in a window.
+ * Needs host permission <all_urls> (manifest) — activeTab alone is not enough
+ * for side-panel auto-refresh without a user gesture.
+ *
+ * @param {{ focus?: boolean }} opts  focus:true steals window focus (user Capture click)
+ */
+async function capturePreview(opts = {}) {
+  const focus = Boolean(opts.focus);
   const agentTabs = await listAgentTabs();
   let tab =
     agentTabs.find((t) => t.active) ||
     agentTabs[0] ||
     null;
 
-  // Fall back to current window active tab
+  // Side panel steals "last focused window" — prefer a normal browser window.
   if (!tab) {
-    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (active) {
-      tab = {
-        id: active.id,
-        title: active.title,
-        url: active.url,
-        windowId: active.windowId,
-      };
+    const normals = await chrome.windows.getAll({
+      windowTypes: ["normal"],
+      populate: false,
+    });
+    const preferred =
+      normals.find((w) => w.focused) ||
+      normals.find((w) => w.state !== "minimized") ||
+      normals[0];
+    if (preferred?.id != null) {
+      const [active] = await chrome.tabs.query({ active: true, windowId: preferred.id });
+      if (active && !String(active.url || "").startsWith("chrome://")) {
+        tab = {
+          id: active.id,
+          title: active.title,
+          url: active.url,
+          windowId: active.windowId,
+        };
+      }
     }
   }
   if (!tab?.windowId) {
-    return { ok: false, error: "No tab to preview" };
+    return {
+      ok: false,
+      error: "No tab to preview — open a normal page (or an Executor agent tab), then Capture",
+    };
+  }
+
+  const url = String(tab.url || "");
+  if (
+    url.startsWith("chrome://") ||
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("devtools://") ||
+    url.startsWith("edge://") ||
+    url.startsWith("about:")
+  ) {
+    return {
+      ok: false,
+      error: "Can't capture browser chrome pages — switch to a normal http(s) tab",
+      tab,
+    };
   }
 
   try {
-    // Focus that window/tab so capture is meaningful
-    await chrome.windows.update(tab.windowId, { focused: true });
-    if (tab.id) await chrome.tabs.update(tab.id, { active: true });
-    await new Promise((r) => setTimeout(r, 120));
+    // Capture needs the tab active in its window. Prefer not stealing OS focus
+    // unless the user clicked Capture (focus:true).
+    if (tab.id) {
+      const winTabs = await chrome.tabs.query({ windowId: tab.windowId, active: true });
+      if (!winTabs.length || winTabs[0].id !== tab.id) {
+        await chrome.tabs.update(tab.id, { active: true });
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    }
+    if (focus) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+      await new Promise((r) => setTimeout(r, 80));
+    }
+
     const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: "jpeg",
-      quality: 55,
+      quality: 60,
     });
     return {
       ok: true,
@@ -176,8 +224,180 @@ async function capturePreview() {
       at: Date.now(),
     };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e), tab };
+    const msg = String(e?.message || e);
+    if (msg.includes("activeTab") || msg.includes("<all_urls>") || msg.includes("permission")) {
+      return {
+        ok: false,
+        error: "Reload the extension on chrome://extensions (permissions), then Capture again",
+        tab,
+      };
+    }
+    return { ok: false, error: msg, tab };
   }
+}
+
+/** Probe Executor HTTPS (no auth) — UI or /api/health. */
+async function probeExecutor(baseUrl) {
+  const base = (baseUrl || "").replace(/\/$/, "");
+  if (!base) return { ok: false, error: "No Executor URL" };
+  const started = performance.now();
+  for (const path of ["/", "/api/health"]) {
+    try {
+      const r = await fetch(base + path, { method: "GET", cache: "no-store" });
+      const ms = Math.round(performance.now() - started);
+      // 401/403 on / still means host is up
+      if (r.ok || r.status === 401 || r.status === 403) {
+        return { ok: true, status: r.status, ms, url: base, path };
+      }
+    } catch (e) {
+      /* try next path */
+    }
+  }
+  return {
+    ok: false,
+    error: "Unreachable — join Tailscale or check URL",
+    url: base,
+    ms: Math.round(performance.now() - started),
+  };
+}
+
+/** Try candidate base URLs; return first that responds. */
+async function detectExecutor(candidates = []) {
+  const list = [...candidates].filter(Boolean);
+  for (const url of list) {
+    const p = await probeExecutor(url);
+    if (p.ok) return { ok: true, url: p.url, ms: p.ms, status: p.status };
+  }
+  return { ok: false, error: "No candidate Executor responded" };
+}
+
+/**
+ * Verify personal API key: MCP initialize with Bearer.
+ * This is the main "Connect" path — no companion required.
+ */
+async function verifyExecutorAuth() {
+  const s = await getSettings();
+  if (!s.executorUrl) return { ok: false, error: "Set Executor base URL" };
+  if (!s.executorApiKey) return { ok: false, error: "Paste personal API key" };
+  const mcpUrl = s.executorUrl.replace(/\/$/, "") + "/mcp";
+  try {
+    const r = await fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${s.executorApiKey}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "executor-browser", version: "0.3.0" },
+        },
+      }),
+    });
+    const text = await r.text();
+    if (r.status === 401 || r.status === 403) {
+      return { ok: false, error: "Invalid API key (401/403)", status: r.status };
+    }
+    if (!r.ok) {
+      return {
+        ok: false,
+        error: `MCP initialize failed (${r.status})`,
+        detail: text.slice(0, 200),
+      };
+    }
+    await pushActivity({ kind: "executor", message: "API key verified with Executor" });
+    return { ok: true, status: r.status, snippet: text.slice(0, 120) };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+const TS_IP_RE = /100\.\d{1,3}\.\d{1,3}\.\d{1,3}/;
+
+/** WebRTC ICE candidates often include the Tailscale adapter (CGNAT 100.64/10). */
+function detectTailscaleViaWebRtc(timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const ips = new Set();
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try {
+        pc.close();
+      } catch {
+        /* ignore */
+      }
+      const list = [...ips];
+      const ts = list.find((ip) => TS_IP_RE.test(ip));
+      resolve(ts || null);
+    };
+    let pc;
+    try {
+      pc = new RTCPeerConnection({ iceServers: [] });
+    } catch {
+      resolve(null);
+      return;
+    }
+    pc.createDataChannel("ts");
+    pc.onicecandidate = (ev) => {
+      const c = ev.candidate?.candidate;
+      if (!c) return;
+      const m = c.match(
+        /([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/,
+      );
+      if (m) ips.add(m[1]);
+    };
+    pc.createOffer()
+      .then((o) => pc.setLocalDescription(o))
+      .catch(() => finish());
+    setTimeout(finish, timeoutMs);
+  });
+}
+
+/** Best-effort Tailscale IPv4 — companion meta, then WebRTC, then clear manual hint. */
+async function detectTailscale() {
+  const s = await getSettings();
+  const base = (s.companionHealthUrl || "http://127.0.0.1:9230/healthz").replace(/\/healthz$/, "");
+  for (const path of ["/tailscale", "/meta", "/info", "/healthz"]) {
+    try {
+      const r = await fetch(base + path, { method: "GET", cache: "no-store" });
+      if (!r.ok && r.status !== 200) continue;
+      const text = await r.text();
+      let j;
+      try {
+        j = JSON.parse(text);
+      } catch {
+        j = null;
+      }
+      const ip =
+        j?.tailscaleIp ||
+        j?.tailscale_ip ||
+        j?.ip ||
+        j?.tsIp ||
+        (text.match(TS_IP_RE) || [])[0];
+      if (ip) return { ok: true, ip, source: "companion" };
+    } catch {
+      /* try next */
+    }
+  }
+
+  // Service worker may not have RTCPeerConnection on all Chrome builds —
+  // UI also runs WebRTC; try here first.
+  if (typeof RTCPeerConnection !== "undefined") {
+    const ip = await detectTailscaleViaWebRtc();
+    if (ip) return { ok: true, ip, source: "webrtc" };
+  }
+
+  return {
+    ok: false,
+    error:
+      "Could not auto-detect. Run: tailscale ip -4  →  paste as http://100.x.x.x:9230/mcp  (Executor online ≠ your desktop IP)",
+  };
 }
 
 /**
@@ -326,6 +546,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const settings = await getSettings();
         const companion = await checkCompanion();
         const tabs = await listAgentTabs();
+        const executor = settings.executorUrl
+          ? await probeExecutor(settings.executorUrl)
+          : { ok: false, error: "no url" };
         sendResponse({
           settings: {
             ...settings,
@@ -334,6 +557,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             hasApiKey: Boolean(settings.executorApiKey),
           },
           companion,
+          executor,
           tabs,
           activity: settings.activity || [],
         });
@@ -348,14 +572,34 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case "saveSecrets": {
-        const settings = await setSettings({
+        const patch = {
           executorUrl: msg.executorUrl ?? undefined,
           executorApiKey: msg.executorApiKey ?? undefined,
           tailscaleHint: msg.tailscaleHint ?? undefined,
-        });
+          publicEndpoint: msg.publicEndpoint ?? undefined,
+        };
+        // drop undefined keys so we don't wipe
+        for (const k of Object.keys(patch)) {
+          if (patch[k] === undefined) delete patch[k];
+        }
+        const settings = await setSettings(patch);
         sendResponse({ ok: true, hasApiKey: Boolean(settings.executorApiKey) });
         break;
       }
+      case "detectTailscale":
+        sendResponse(await detectTailscale());
+        break;
+      case "probeExecutor": {
+        const s = await getSettings();
+        sendResponse(await probeExecutor(msg.url || s.executorUrl));
+        break;
+      }
+      case "detectExecutor":
+        sendResponse(await detectExecutor(msg.candidates || []));
+        break;
+      case "verifyExecutorAuth":
+        sendResponse(await verifyExecutorAuth());
+        break;
       case "checkCompanion":
         sendResponse(await checkCompanion());
         break;
@@ -372,11 +616,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, tabs: await listAgentTabs() });
         break;
       case "capturePreview":
-        sendResponse(await capturePreview());
+        sendResponse(await capturePreview({ focus: Boolean(msg.focus) }));
         break;
-      case "registerExecutor":
-        sendResponse(await registerWithExecutor({ endpoint: msg.endpoint }));
+      case "registerExecutor": {
+        const ep = msg.endpoint || (await getSettings()).publicEndpoint;
+        const result = await registerWithExecutor({ endpoint: ep });
+        if (result.ok) {
+          await setSettings({
+            registeredAt: Date.now(),
+            publicEndpoint: ep || (await getSettings()).publicEndpoint,
+          });
+        }
+        sendResponse(result);
         break;
+      }
       case "pushActivity":
         sendResponse({ ok: true, activity: await pushActivity(msg.entry || {}) });
         break;

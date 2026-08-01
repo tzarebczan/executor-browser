@@ -4,31 +4,57 @@
 
 | Piece | Responsibility |
 |-------|----------------|
-| **Extension** | Side panel UX, tab groups, live JPEG preview, Executor API-key register |
-| **Companion** | CDP → streamable MCP (`:9230`); not in this repo (lab: `tbd/infra/host/chrome-agent`) |
-| **Executor** | Tool catalog + policies; self-host needs `EXECUTOR_ALLOW_LOCAL_NETWORK=true` for Tailscale |
+| **Extension** | Side panel UX, tab groups, live preview, **API-key connect over Tailscale** |
+| **Companion** (optional) | CDP → streamable MCP (`:9230`) so *remote agents can drive* Chrome |
+| **Executor** | Tool catalog + policies; lab Serve on `:8444`; `EXECUTOR_ALLOW_LOCAL_NETWORK` for private MCP |
+
+## Connect (default — no companion)
+
+```text
+Detect/probe https://lab-agents.<tailnet>.ts.net:8444
+  → paste personal API key (Executor Settings → API keys)
+  → MCP initialize with Bearer  →  "Connected"
+```
+
+Outbound only. Extension never needs an inbound port for this path.
+
+## Optional automation (companion / remote debugging)
+
+Remote agents calling `tools.chrome.*` need a **browser MCP** Executor can reach:
+
+```text
+Executor (lab)  ──calls──►  http://<your-tailscale-ip>:9230/mcp  (companion)
+                                │
+                                └── CDP / remote debugging → Chrome
+```
+
+MV3 cannot listen on a port. So either:
+
+1. Companion (or native host) exposes MCP on the laptop, or  
+2. Future: reverse channel (extension WebSocket *to* Executor).
+
+**Remote debugging** (`chrome://inspect/#remote-debugging`) is how the companion attaches to your real profile — it is not a substitute for the MCP endpoint.
 
 ## Why not pure CDP in the extension?
 
 MV3 cannot safely own long-lived CDP the way a Node companion can. The extension:
 
-- Groups tabs (Claude/Codex-like)
-- Captures what the user sees (`captureVisibleTab`)
-- Orchestrates pairing
+- Groups tabs
+- Captures what the user sees (`captureVisibleTab` + `<all_urls>`)
+- Pairs with Executor via API key
 
-Automation (click, a11y snapshot, console) stays on the companion.
+Full automation (click, a11y snapshot) stays on the optional companion.
 
-## Register flow
+## Register automation flow (advanced)
 
 ```text
-Side panel "Register with Executor"
+Side panel "Register automation"
   → MCP initialize on Executor /mcp (Bearer API key)
   → tools/call execute {
-       probeEndpoint(endpoint)
+       probeEndpoint(public MCP URL)
        addServer(slug: chrome)
        connections.create(name: desktop)
      }
-  → resume if approval pause
 ```
 
-`endpoint` is usually `http://<tailscale-ip>:9230/mcp` for remote agents.
+`endpoint` is usually `http://<tailscale-ip>:9230/mcp`.

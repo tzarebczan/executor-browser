@@ -36,15 +36,30 @@ Executor  ←  http://<tailscale-ip>:9230/mcp   (ALLOW_LOCAL_NETWORK)
 3. Select the `extension/` folder in this repo
 4. Pin **Executor Browser** — the **side panel** opens on click
 
-## Connect (lab Tailscale)
+## Connect (default — no companion)
 
-1. Open the side panel  
-2. **Executor URL** — e.g. `https://lab-agents.<tailnet>.ts.net:8444`  
-3. **API key** — Executor personal API key  
-4. **Public MCP URL** — `http://<your-desktop-tailscale-ip>:9230/mcp`  
-5. **Register with Executor**  
+Users should **not** need a companion app to pair with Executor.
 
-Requires self-host:
+1. Open the side panel → **Connect**  
+2. **Detect** fills lab URL (`https://lab-agents.<tailnet>.ts.net:8444`) when Tailscale is up  
+3. Paste a **personal API key** from Executor → Settings → API keys  
+4. **Connect** — MCP `initialize` with Bearer; green when valid  
+
+Stored only in `chrome.storage.local` for this browser profile.
+
+### Optional: browser automation (agents drive Chrome)
+
+This is what the **public MCP URL** is for — not for basic connect.
+
+| Piece | Role |
+|-------|------|
+| **API key connect** | Extension → Executor (outbound HTTPS). Pairing, tools, status. |
+| **MCP endpoint** (`http://100.x:9230/mcp`) | Executor → your PC so agents can **control** the browser (CDP). |
+| **Remote debugging** | How a companion attaches to your real Chrome profile. |
+
+Without the MCP endpoint, agents cannot click/type/snapshot this Chrome remotely. With only the API key, you still get pairing, tab groups, and live preview.
+
+Lab self-host for optional automation:
 
 ```yaml
 EXECUTOR_ALLOW_LOCAL_NETWORK: "true"
@@ -54,9 +69,9 @@ EXECUTOR_ALLOW_LOCAL_NETWORK: "true"
 
 | Mode | Meaning |
 |------|---------|
-| Existing Chrome | Remote debugging; keep cookies |
-| Fresh profile | Companion launches isolated profile (scripted) |
-| Extension-only | Groups + preview only (no CDP) |
+| Existing Chrome | Keep logins; optional remote debugging for automation |
+| Fresh profile | Isolated window (automation helper) |
+| Extension-only | Groups + preview · no CDP |
 
 ## Privacy
 

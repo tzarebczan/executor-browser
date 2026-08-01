@@ -7,154 +7,294 @@
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
-    <div class="bg-glow" aria-hidden="true"></div>
-    <div class="bg-grid" aria-hidden="true"></div>
-
     <header class="top">
       <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <span class="logo-ring"></span>
-          <span class="logo-core"></span>
-        </div>
+        <div class="logo" aria-hidden="true"></div>
         <div>
-          <h1>Executor Browser</h1>
-          <p class="tag">Agents see what you see</p>
+          <h1>Executor</h1>
+          <p class="tag" id="headerStatus">Checking…</p>
         </div>
       </div>
-      <div class="live-dot" id="liveDot" title="Companion status"></div>
+      <button type="button" class="icon-btn" id="btnRefresh" title="Refresh">↻</button>
     </header>
 
-    <!-- Live preview -->
-    <section class="preview-card">
-      <div class="preview-chrome">
-        <div class="traffic">
-          <i></i><i></i><i></i>
-        </div>
-        <div class="urlbar" id="previewUrl">waiting for preview…</div>
-      </div>
-      <div class="preview-stage" id="previewStage">
-        <div class="preview-empty" id="previewEmpty">
-          <div class="pulse-orb"></div>
-          <p>Live view of the agent tab</p>
-          <span>Capture a frame or open a tab in the Executor group</span>
-        </div>
-        <img id="previewImg" alt="Tab preview" hidden />
-        <div class="scanline" aria-hidden="true"></div>
-      </div>
-      <div class="preview-meta">
-        <span id="previewTitle">—</span>
-        <button type="button" class="ghost sm" id="btnCapture">Capture</button>
-      </div>
+    <section class="setup-banner" id="setupBanner" hidden>
+      <div class="setup-steps" id="setupSteps"></div>
+      <div class="quick-row" id="quickActions"></div>
     </section>
 
-    <!-- Status strip -->
-    <section class="status-strip">
-      <div class="stat">
-        <span class="stat-label">Companion</span>
-        <span class="stat-value" id="companionStat">…</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">MCP</span>
-        <span class="stat-value" id="mcpStat">…</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">Agent tabs</span>
-        <span class="stat-value" id="tabStat">0</span>
-      </div>
-    </section>
+    <nav class="tabs" role="tablist" aria-label="Panel">
+      <button type="button" class="tab active" data-tab="home" role="tab" aria-selected="true">Home</button>
+      <button type="button" class="tab" data-tab="connect" role="tab" aria-selected="false">Connect</button>
+      <button type="button" class="tab" data-tab="tabs" role="tab" aria-selected="false">
+        Tabs <span class="tab-count" id="tabCount">0</span>
+      </button>
+      <button type="button" class="tab" data-tab="more" role="tab" aria-selected="false">More</button>
+    </nav>
 
-    <!-- Connect -->
-    <section class="card">
-      <div class="card-head">
-        <h2>Connect</h2>
-        <span class="badge">Tailscale · lab</span>
+    <!-- HOME -->
+    <section class="panel active" data-panel="home" role="tabpanel">
+      <div class="preview-card">
+        <div class="preview-chrome">
+          <span class="urlbar" id="previewUrl">No preview yet</span>
+          <button type="button" class="ghost sm" id="btnCapture">Capture</button>
+        </div>
+        <div class="preview-stage" id="previewStage">
+          <div class="preview-empty" id="previewEmpty">
+            <p id="previewEmptyTitle">No live frame</p>
+            <span id="previewEmptyHint">Open an agent tab, then Capture.</span>
+            <button type="button" class="primary sm" id="btnOpenTabHome">Open agent tab</button>
+          </div>
+          <img id="previewImg" alt="" hidden />
+        </div>
+        <div class="preview-meta">
+          <span id="previewTitle">—</span>
+          <span class="meta-right" id="previewError" hidden></span>
+        </div>
       </div>
-      <p class="help">
-        Companion exposes MCP on <code>127.0.0.1:9230</code>. With
-        <code>EXECUTOR_ALLOW_LOCAL_NETWORK</code>, register your Tailscale IP.
-      </p>
-      <label class="field">
-        Executor base URL
-        <input id="executorUrl" type="url" placeholder="https://lab-agents….ts.net:8444" />
-      </label>
-      <label class="field">
-        Executor API key
-        <input id="executorApiKey" type="password" placeholder="Bearer token" autocomplete="off" />
-      </label>
-      <label class="field">
-        Public MCP URL for Executor
-        <input
-          id="publicEndpoint"
-          type="url"
-          placeholder="http://100.x.x.x:9230/mcp"
-        />
-      </label>
-      <div class="actions">
-        <button type="button" class="primary" id="btnRegister">
-          <span class="btn-label">Register with Executor</span>
-          <span class="btn-shine" aria-hidden="true"></span>
+
+      <div class="status-strip">
+        <button type="button" class="stat" data-goto="connect" id="statExecutor">
+          <span class="stat-label">Executor</span>
+          <span class="stat-value" id="executorStat">…</span>
         </button>
-        <button type="button" class="ghost" id="btnRefresh">Refresh</button>
+        <button type="button" class="stat" data-goto="connect" id="statCompanion">
+          <span class="stat-label">Automation</span>
+          <span class="stat-value" id="companionStat">off</span>
+        </button>
+        <button type="button" class="stat" data-goto="tabs">
+          <span class="stat-label">Agent tabs</span>
+          <span class="stat-value" id="tabStat">0</span>
+        </button>
       </div>
-      <p class="hint" id="connectHint"></p>
-    </section>
 
-    <!-- Modes -->
-    <section class="card">
-      <h2>Browser mode</h2>
-      <label class="radio">
-        <input type="radio" name="mode" value="existing" checked />
-        <span>
-          <strong>Existing Chrome</strong>
-          <small>Remote debugging · keep logins</small>
-        </span>
-      </label>
-      <label class="radio">
-        <input type="radio" name="mode" value="fresh" />
-        <span>
-          <strong>Fresh profile</strong>
-          <small>Isolated agent window (companion)</small>
-        </span>
-      </label>
-      <label class="radio">
-        <input type="radio" name="mode" value="extension-only" />
-        <span>
-          <strong>Extension-only</strong>
-          <small>Tab groups + preview · no CDP</small>
-        </span>
-      </label>
-      <div class="actions">
-        <button type="button" class="primary" id="btnOpenTab">Open agent tab</button>
-        <button type="button" class="ghost" id="btnDebug">Remote debugging tip</button>
+      <div class="card compact">
+        <div class="card-head">
+          <h2>Activity</h2>
+          <button type="button" class="link" id="btnClearActivity">Clear</button>
+        </div>
+        <ul class="activity" id="activityList">
+          <li class="empty">Nothing yet</li>
+        </ul>
       </div>
     </section>
 
-    <!-- Agent tabs -->
-    <section class="card">
-      <div class="card-head">
-        <h2>Agent tab group</h2>
-        <span class="badge soft" id="groupBadge">Executor</span>
+    <!-- CONNECT: API key first; companion optional -->
+    <section class="panel" data-panel="connect" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Executor</h2>
+          <span class="badge" id="labBadge">Lab</span>
+        </div>
+
+        <p class="hint tight" id="executorReachHint">
+          Connect over Tailscale with a personal API key. No companion app required.
+        </p>
+
+        <div class="preset-row">
+          <button type="button" class="chip active" data-preset="lab">Lab (auto)</button>
+          <button type="button" class="chip" data-preset="custom">Custom URL</button>
+        </div>
+
+        <label class="field">
+          Base URL
+          <div class="field-row">
+            <input
+              id="executorUrl"
+              type="url"
+              placeholder="https://lab-agents…ts.net:8444"
+              autocomplete="off"
+            />
+            <button type="button" class="ghost sm" id="btnDetectExecutor" title="Probe lab Tailscale">
+              Detect
+            </button>
+          </div>
+        </label>
+
+        <label class="field">
+          API key
+          <input
+            id="executorApiKey"
+            type="password"
+            placeholder="Paste personal API key"
+            autocomplete="off"
+          />
+        </label>
+        <p class="hint tight">
+          In Executor → <strong>Settings → API keys</strong> (or your account menu) → create a
+          personal key → paste here. Stored only in this browser profile.
+        </p>
+
+        <div class="actions stack">
+          <button type="button" class="primary" id="btnConnect">Connect</button>
+          <button type="button" class="ghost" id="btnTestExecutor">Test connection</button>
+        </div>
+        <p class="hint" id="connectHint" role="status"></p>
       </div>
-      <ul class="tab-list" id="tabList">
-        <li class="empty">No tabs in group yet</li>
-      </ul>
+
+      <details class="adv" id="advAutomation">
+        <summary>
+          Optional · browser automation
+          <span class="muted" id="autoSummary">off</span>
+        </summary>
+        <p class="hint tight">
+          <strong>Connect above does not need this.</strong> API key is enough for pairing,
+          tabs, and preview. Automation is only if remote agents should <em>drive</em> this Chrome.
+        </p>
+        <p class="hint tight">
+          <strong>Can Executor include the companion?</strong> Not really — Executor runs on the
+          <em>server</em> (lab-agents). Browser control must run on <em>your PC</em> next to Chrome.
+          Today that is a small local process (PowerShell + Node MCP), not something the server
+          can install into the extension alone.
+        </p>
+
+        <div class="install-steps" id="companionInstall">
+          <div class="install-step">
+            <span class="n">1</span>
+            <div>
+              <strong>Allow remote debugging</strong>
+              <p class="hint tight">
+                Open <code>chrome://inspect/#remote-debugging</code> → Allow (once per Chrome profile).
+              </p>
+              <button type="button" class="ghost sm" id="btnDebug">Open remote debugging</button>
+            </div>
+          </div>
+          <div class="install-step">
+            <span class="n">2</span>
+            <div>
+              <strong>Start the companion on this PC</strong>
+              <p class="hint tight">
+                From the <code>tbd</code> repo (lab scripts). Leaves a process on
+                <code>127.0.0.1:9230</code> (MCP). Not packaged as an .exe yet.
+              </p>
+              <pre class="cmd" id="companionCmd">node infra/host/chrome-agent/start-companion.mjs</pre>
+              <div class="actions">
+                <button type="button" class="ghost sm" id="btnCopyCompanionCmd">Copy command</button>
+                <button type="button" class="ghost sm" id="btnRecheckCompanion">Recheck companion</button>
+              </div>
+            </div>
+          </div>
+          <div class="install-step">
+            <span class="n">3</span>
+            <div>
+              <strong>Public MCP URL</strong> (so Executor can call your PC over Tailscale)
+              <label class="field">
+                <input
+                  id="publicEndpoint"
+                  type="url"
+                  placeholder="http://100.x.x.x:9230/mcp"
+                  autocomplete="off"
+                />
+              </label>
+              <div class="actions">
+                <button type="button" class="ghost sm" id="btnDetectTs">Detect Tailscale IP</button>
+                <button type="button" class="primary sm" id="btnRegisterAutomation">Register with Executor</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="hint" id="companionDetail">Companion status: not required for Connect.</p>
+      </details>
     </section>
 
-    <!-- Activity feed -->
-    <section class="card">
-      <div class="card-head">
-        <h2>Activity</h2>
-        <button type="button" class="link" id="btnClearActivity">Clear</button>
+    <!-- TABS -->
+    <section class="panel" data-panel="tabs" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Agent group</h2>
+          <span class="badge soft" id="groupBadge">Executor</span>
+        </div>
+        <div class="actions">
+          <button type="button" class="primary" id="btnOpenTab">Open tab</button>
+          <button type="button" class="ghost" id="btnCaptureTabs">Capture active</button>
+        </div>
+        <ul class="tab-list" id="tabList">
+          <li class="empty">No agent tabs</li>
+        </ul>
       </div>
-      <ul class="activity" id="activityList">
-        <li class="empty">Actions will show up here</li>
-      </ul>
+
+      <div class="card">
+        <h2>Mode</h2>
+        <label class="radio">
+          <input type="radio" name="mode" value="existing" checked />
+          <span>
+            <strong>This Chrome</strong>
+            <small>Keep logins · optional remote debugging</small>
+          </span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="mode" value="fresh" />
+          <span>
+            <strong>Fresh profile</strong>
+            <small>Isolated window (automation helper)</small>
+          </span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="mode" value="extension-only" />
+          <span>
+            <strong>Extension only</strong>
+            <small>Groups + preview · no CDP</small>
+          </span>
+        </label>
+      </div>
     </section>
 
-    <footer>
-      <span>v0.1.0</span>
-      <a href="options.html" target="_blank">Options</a>
-    </footer>
+    <!-- MORE: guidance + advanced (stays in sidebar — no full-page hop) -->
+    <section class="panel" data-panel="more" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Use with agents</h2>
+          <span class="badge soft" id="useBadge">how-to</span>
+        </div>
+        <ol class="howto" id="howtoSteps">
+          <li><strong>Connect</strong> — API key verified (Home shows Executor green).</li>
+          <li><strong>Optional automation</strong> — companion + MCP URL if agents should drive Chrome.</li>
+          <li><strong>In Claude / Codex / T3</strong> — enable the <code>executor</code> MCP (or tools.chrome) for that session.</li>
+          <li><strong>Prompt</strong> — tell the agent to use browser tools on your desktop connection.</li>
+        </ol>
+        <label class="field">
+          Copy-paste agent prompt
+          <textarea id="agentPrompt" rows="4" readonly class="prompt-box"></textarea>
+        </label>
+        <div class="actions">
+          <button type="button" class="primary" id="btnCopyAgentPrompt">Copy prompt</button>
+          <button type="button" class="ghost" id="btnGoConnect">Open Connect</button>
+        </div>
+        <p class="hint" id="nextHint">After Connect succeeds, this tab explains the agent path.</p>
+      </div>
+
+      <div class="card" id="advancedCard">
+        <h2>Advanced</h2>
+        <p class="hint tight">Companion URLs and tab group name (saved here — not a separate page).</p>
+        <label class="field">
+          Companion health URL
+          <input id="healthUrl" type="url" placeholder="http://127.0.0.1:9230/healthz" autocomplete="off" />
+        </label>
+        <label class="field">
+          Companion MCP URL
+          <input id="mcpUrl" type="url" placeholder="http://127.0.0.1:9230/mcp" autocomplete="off" />
+        </label>
+        <label class="field">
+          Tab group title
+          <input id="groupTitle" type="text" placeholder="Executor" autocomplete="off" />
+        </label>
+        <div class="actions">
+          <button type="button" class="primary sm" id="btnSaveAdvanced">Save advanced</button>
+        </div>
+        <p class="hint" id="advancedHint" role="status"></p>
+      </div>
+
+      <div class="card">
+        <h2>About</h2>
+        <p class="hint">
+          Side panel for Executor. Default: HTTPS + API key over Tailscale. Optional automation
+          lets remote agents control this Chrome via local MCP.
+        </p>
+      </div>
+      <footer class="inline-foot">
+        <span id="versionLabel">v0.3.1</span>
+      </footer>
+    </section>
 
     <script src="sidebar.js" type="module"></script>
   </body>
