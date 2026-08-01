@@ -25,7 +25,10 @@
 
     <nav class="tabs" role="tablist" aria-label="Panel">
       <button type="button" class="tab active" data-tab="home" role="tab" aria-selected="true">Home</button>
-      <button type="button" class="tab" data-tab="connect" role="tab" aria-selected="false">Connect</button>
+      <button type="button" class="tab" data-tab="connect" role="tab" aria-selected="false" id="tabConnect">
+        <span id="connectTabLabel">Connect</span>
+        <span class="tab-dot" id="connectTabDot" hidden></span>
+      </button>
       <button type="button" class="tab" data-tab="tabs" role="tab" aria-selected="false">
         Tabs <span class="tab-count" id="tabCount">0</span>
       </button>
@@ -81,66 +84,93 @@
 
     <!-- CONNECT -->
     <section class="panel" data-panel="connect" role="tabpanel" hidden>
-      <div class="card">
+      <div class="card" id="connectCard">
         <div class="card-head">
-          <h2>Executor</h2>
+          <h2>Connection</h2>
           <span class="badge" id="labBadge">Lab</span>
         </div>
 
-        <ul class="matrix" id="connectMatrix" aria-live="polite"></ul>
-        <div class="mx-group optional connect-opt" id="connectOptional">
-          <div class="mx-group-head">
-            <span>Browser drive</span>
-            <span class="mx-tag optional-tag">optional</span>
+        <!-- Primary state banner -->
+        <div class="conn-banner" id="connBanner" data-state="checking">
+          <span class="conn-dot" aria-hidden="true"></span>
+          <div class="conn-copy">
+            <strong id="connTitle">Checking…</strong>
+            <span id="connSub" class="conn-sub"></span>
           </div>
-          <ul class="matrix" id="connectMatrixOpt" aria-live="polite"></ul>
         </div>
 
-        <div class="preset-row">
-          <button type="button" class="chip active" data-preset="lab">Lab</button>
-          <button type="button" class="chip" data-preset="custom">Custom</button>
-        </div>
+        <ul class="matrix" id="connectMatrix" aria-live="polite"></ul>
 
-        <label class="field">
-          Base URL
-          <div class="field-row">
+        <!-- Credentials: visible when not connected; collapsible when connected -->
+        <div id="connectForm">
+          <div class="preset-row">
+            <button type="button" class="chip active" data-preset="lab">Lab</button>
+            <button type="button" class="chip" data-preset="custom">Custom</button>
+          </div>
+
+          <label class="field">
+            Base URL
+            <div class="field-row">
+              <input
+                id="executorUrl"
+                type="url"
+                placeholder="https://lab-agents…ts.net:8444"
+                autocomplete="off"
+              />
+              <button type="button" class="ghost sm" id="btnDetectExecutor" title="Probe lab">
+                Detect
+              </button>
+            </div>
+          </label>
+
+          <label class="field">
+            API key
             <input
-              id="executorUrl"
-              type="url"
-              placeholder="https://lab-agents…ts.net:8444"
+              id="executorApiKey"
+              type="password"
+              placeholder="Personal API key"
               autocomplete="off"
             />
-            <button type="button" class="ghost sm" id="btnDetectExecutor" title="Probe lab">
-              Detect
-            </button>
+          </label>
+
+          <div class="actions stack" id="connectActions">
+            <button type="button" class="primary" id="btnConnect">Connect</button>
+            <button type="button" class="ghost" id="btnTestExecutor">Test reachability</button>
           </div>
-        </label>
-
-        <label class="field">
-          API key
-          <input
-            id="executorApiKey"
-            type="password"
-            placeholder="Personal API key"
-            autocomplete="off"
-          />
-        </label>
-
-        <div class="actions stack">
-          <button type="button" class="primary" id="btnConnect">Connect</button>
-          <button type="button" class="ghost" id="btnTestExecutor">Test reachability</button>
         </div>
+
+        <div class="actions" id="connectedActions" hidden>
+          <button type="button" class="ghost sm" id="btnReconnect">Re-check</button>
+          <button type="button" class="ghost sm" id="btnEditConnection">Edit</button>
+          <button type="button" class="ghost sm" id="btnDisconnect">Disconnect</button>
+        </div>
+
         <p class="hint" id="connectHint" role="status"></p>
+      </div>
+
+      <div class="mx-group optional connect-opt" id="connectOptional">
+        <div class="mx-group-head">
+          <span>Remote browser tools</span>
+          <span class="mx-tag optional-tag">needs companion</span>
+        </div>
+        <p class="mx-blurb" id="connectDriveBlurb">
+          Extension pairs you and manages tabs. Agents that click/type need the local companion MCP
+          (Chrome can’t host that port from MV3 alone).
+        </p>
+        <ul class="matrix" id="connectMatrixOpt" aria-live="polite"></ul>
       </div>
 
       <!-- Advanced: below fold; auto-detect companion / TS / register -->
       <details class="adv below-fold" id="advPanel">
         <summary>
-          Advanced
-          <span class="muted" id="advSummary">optional</span>
+          Advanced · companion
+          <span class="muted" id="advSummary">off</span>
         </summary>
 
-        <p class="hint tight">Browser automation (companion on this PC). Not required for API connect.</p>
+        <p class="hint tight">
+          Starts local MCP on :9230 so Executor can call <code>tools.chrome.*</code> on this PC.
+          Not required for Connection / API key.
+        </p>
 
         <ul class="matrix tight" id="advMatrix"></ul>
 
@@ -284,7 +314,7 @@
       </div>
 
       <footer class="inline-foot">
-        <span id="versionLabel">v0.4.3</span>
+        <span id="versionLabel">v0.4.4</span>
       </footer>
     </section>
 

@@ -119,6 +119,101 @@ function deriveFlags(status) {
   };
 }
 
+function renderConnectState(f) {
+  const banner = $("connBanner");
+  const form = $("connectForm");
+  const connectedActions = $("connectedActions");
+  const connectActions = $("connectActions");
+  const card = $("connectCard");
+  const tabDot = $("connectTabDot");
+  const tabBtn = $("tabConnect");
+  const url = f.settings?.executorUrl || "";
+  const shortUrl = url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+  let state = "bad";
+  let title = "Not connected";
+  let sub = "Paste API key and connect";
+
+  if (authChecking) {
+    state = "run";
+    title = "Connecting…";
+    sub = shortUrl || "Verifying API key";
+  } else if (f.connected && f.executorReach) {
+    state = "ok";
+    title = "Connected";
+    sub = shortUrl + (f.executor?.ms != null ? ` · ${f.executor.ms}ms` : "");
+  } else if (f.connected && !f.executorReach) {
+    state = "warn";
+    title = "Connected · unreachable";
+    sub = shortUrl || "Tailscale / URL down";
+  } else if (f.hasKey && f.executorReach) {
+    state = "warn";
+    title = "Key saved · not verified";
+    sub = "Tap Connect or wait for auto-connect";
+  } else if (f.executorReach) {
+    state = "warn";
+    title = "Reachable · needs key";
+    sub = shortUrl || "Paste personal API key";
+  } else {
+    state = "bad";
+    title = "Not connected";
+    sub = f.settings?.executorUrl ? "Executor offline" : "Detect URL or join Tailscale";
+  }
+
+  if (banner) {
+    banner.dataset.state = state;
+    if ($("connTitle")) $("connTitle").textContent = title;
+    if ($("connSub")) $("connSub").textContent = sub;
+  }
+
+  const fullyOk = f.connected && f.executorReach && !authChecking;
+
+  if (card) card.classList.toggle("is-connected", fullyOk);
+  if (form) {
+    // Keep form hidden when connected unless user opened edit
+    if (fullyOk && !form.dataset.forceEdit) form.classList.add("is-collapsed");
+    if (!fullyOk) {
+      form.classList.remove("is-collapsed");
+      delete form.dataset.forceEdit;
+    }
+  }
+  if (connectedActions) connectedActions.hidden = !fullyOk;
+  if (connectActions) connectActions.hidden = fullyOk && !form?.dataset.forceEdit;
+  if ($("btnConnect")) $("btnConnect").hidden = fullyOk && !form?.dataset.forceEdit;
+
+  // Tab title + green dot
+  if ($("connectTabLabel")) {
+    $("connectTabLabel").textContent = fullyOk ? "Connected" : "Connect";
+  }
+  if (tabDot) {
+    if (fullyOk) {
+      tabDot.hidden = false;
+      tabDot.className = "tab-dot";
+    } else if (authChecking) {
+      tabDot.hidden = false;
+      tabDot.className = "tab-dot warn";
+    } else if (f.hasKey || f.executorReach) {
+      tabDot.hidden = false;
+      tabDot.className = "tab-dot warn";
+    } else {
+      tabDot.hidden = true;
+    }
+  }
+
+  if ($("connectDriveBlurb")) {
+    if (f.automationOk) {
+      $("connectDriveBlurb").textContent =
+        "Remote tools.chrome.* active via companion. Extension tab group is for local organization.";
+    } else if (f.companionOn) {
+      $("connectDriveBlurb").textContent =
+        "Companion running — Register under Advanced so Executor can call this Chrome.";
+    } else {
+      $("connectDriveBlurb").textContent =
+        "You’re connected for Executor API. Remote click/type needs companion (MV3 can’t expose MCP). Extension still handles pair, tab group, preview.";
+    }
+  }
+}
+
 function renderMatrices(status) {
   const f = deriveFlags(status);
   const reachDetail = f.executorReach
@@ -135,7 +230,7 @@ function renderMatrices(status) {
         : "no key";
   const authState = authChecking ? "run" : f.connected ? "ok" : f.hasKey ? "warn" : "bad";
 
-  // Connect: core only; optional block separate
+  // Connect: compact checks under banner
   const connectRows = [
     matrixRow(f.executorReach ? "ok" : "bad", "Reachable", reachDetail),
     matrixRow(authState, "Auth", authDetail),
@@ -143,17 +238,19 @@ function renderMatrices(status) {
 
   let drivePill;
   if (f.automationOk) drivePill = "on";
-  else if (f.companionOn) drivePill = "companion only";
+  else if (f.companionOn) drivePill = "local only";
   else drivePill = "off";
 
   const connectOptRows = [
     matrixRow(
       f.automationOk ? "ok" : f.companionOn ? "warn" : "skip",
-      f.automationOk ? "Registered" : "Not enabled",
+      "tools.chrome.*",
       drivePill,
       { optional: true },
     ),
   ].join("");
+
+  renderConnectState(f);
 
   // Agents → Core (required)
   const coreRows = [
@@ -247,22 +344,22 @@ function renderMatrices(status) {
 
   if ($("driveBlurb")) {
     if (f.automationOk) {
-      $("driveBlurb").textContent = "Agents can drive this Chrome via registered companion MCP.";
+      $("driveBlurb").textContent = "tools.chrome.user.desktop registered — agents can drive Chrome.";
     } else if (f.companionOn) {
       $("driveBlurb").textContent =
-        "Companion up. Register under Connect → Advanced so Executor can call Chrome tools.";
+        "Companion up. Advanced → Register to expose tools.chrome.* to Executor.";
     } else {
       $("driveBlurb").textContent =
-        "Optional. Local process on :9230 — only if agents should click/type in Chrome. Executor API works without it.";
+        "Extension ≠ remote CDP. Pair + tabs + preview work now; remote click/type needs companion MCP.";
     }
   }
 
   if ($("nextHint")) {
-    if (!f.executorReach) $("nextHint").textContent = "Core incomplete: join Tailscale, Detect on Connect.";
-    else if (!f.hasKey) $("nextHint").textContent = "Core incomplete: paste API key on Connect.";
-    else if (!f.connected) $("nextHint").textContent = "Core incomplete: auth failed or still verifying.";
-    else if (f.automationOk) $("nextHint").textContent = "Core + browser drive ready.";
-    else $("nextHint").textContent = "Core ready. Browser drive off by choice — not an error.";
+    if (!f.executorReach) $("nextHint").textContent = "Not connected: Tailscale / Detect.";
+    else if (!f.hasKey) $("nextHint").textContent = "Not connected: paste API key.";
+    else if (!f.connected) $("nextHint").textContent = "Not connected: auth failed or verifying.";
+    else if (f.automationOk) $("nextHint").textContent = "Connected + remote browser tools.";
+    else $("nextHint").textContent = "Connected to Executor. Remote browser tools off (companion).";
   }
 
   if ($("advSummary")) {
@@ -739,7 +836,54 @@ $("btnConnect").addEventListener("click", async () => {
   await saveMode();
   const res = await autoConnect({ quiet: false });
   btn.disabled = false;
-  if (res?.ok) await autoAdvanced({ register: true });
+  if (res?.ok) {
+    const form = $("connectForm");
+    if (form) delete form.dataset.forceEdit;
+    await autoAdvanced({ register: true });
+  }
+});
+
+$("btnReconnect")?.addEventListener("click", async () => {
+  $("connectHint").textContent = "Re-checking…";
+  await autoConnect({ quiet: false });
+  await autoAdvanced({ register: true });
+});
+
+$("btnEditConnection")?.addEventListener("click", () => {
+  const form = $("connectForm");
+  if (!form) return;
+  form.dataset.forceEdit = "1";
+  form.classList.remove("is-collapsed");
+  if ($("connectActions")) $("connectActions").hidden = false;
+  if ($("btnConnect")) {
+    $("btnConnect").hidden = false;
+    $("btnConnect").textContent = "Save & connect";
+  }
+  $("executorApiKey")?.focus();
+});
+
+$("btnDisconnect")?.addEventListener("click", async () => {
+  authOk = false;
+  automationOk = false;
+  await chrome.runtime.sendMessage({ type: "disconnectExecutor" });
+  if ($("executorApiKey")) {
+    $("executorApiKey").value = "";
+    $("executorApiKey").placeholder = "Personal API key";
+  }
+  const form = $("connectForm");
+  if (form) {
+    delete form.dataset.forceEdit;
+    form.classList.remove("is-collapsed");
+  }
+  if ($("btnConnect")) {
+    $("btnConnect").textContent = "Connect";
+    $("btnConnect").hidden = false;
+  }
+  if ($("connectActions")) $("connectActions").hidden = false;
+  if ($("connectedActions")) $("connectedActions").hidden = true;
+  $("connectHint").textContent = "Disconnected — paste key to reconnect";
+  toast("Disconnected");
+  await refresh();
 });
 
 $("btnRegisterAutomation").addEventListener("click", async () => {
@@ -815,19 +959,19 @@ function buildAgentPrompt(settings) {
     ].join("\n");
   }
 
-  // API connected, no companion — be explicit so agents don't fake browser tools
+  // Connected for Executor API; remote CDP needs companion (extension can't host MCP in MV3)
   return [
-    "Executor is connected. Browser drive is OFF for this session.",
+    "Executor is CONNECTED for this user (API key verified).",
     "",
     `Executor MCP: ${mcp}`,
-    "Use Executor tools (non-browser) as needed.",
+    "Use Executor tools for this session.",
     "",
-    "Browser / tabs:",
-    "- Do NOT call tools.chrome.* — companion MCP is not registered on this desktop.",
-    `- The extension may show an “${group}” tab group locally; that is UX only, not agent CDP control.`,
-    "- You cannot open, click, type, or snapshot the user's Chrome from here.",
-    "- If the task needs a live browser: tell the user to start companion + Advanced → Register, then re-copy this prompt.",
-    "- Otherwise continue with non-browser tools only.",
+    "Browser control:",
+    "- Remote tools.chrome.* are NOT available — companion MCP is not registered.",
+    "- Why: Chrome MV3 extensions cannot expose a streamable MCP port for Executor to call. A small local companion does that.",
+    `- The “${group}” tab group + side-panel preview are local UX only (open/group/capture), not agent CDP.`,
+    "- If the task needs live click/type/snapshot: user starts companion + Advanced → Register, then re-copy this prompt.",
+    "- Otherwise use non-browser Executor tools only. Do not invent page state.",
   ].join("\n");
 }
 

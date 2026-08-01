@@ -580,11 +580,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           tailscaleHint: msg.tailscaleHint ?? undefined,
           publicEndpoint: msg.publicEndpoint ?? undefined,
         };
-        // drop undefined keys so we don't wipe
+        // drop undefined keys so we don't wipe; allow "" to clear secrets
         for (const k of Object.keys(patch)) {
           if (patch[k] === undefined) delete patch[k];
         }
         const settings = await setSettings(patch);
+        sendResponse({ ok: true, hasApiKey: Boolean(settings.executorApiKey) });
+        break;
+      }
+      case "disconnectExecutor": {
+        const settings = await setSettings({
+          executorApiKey: "",
+          registeredAt: 0,
+          chromeRegistered: false,
+          publicEndpoint: "",
+        });
         sendResponse({ ok: true, hasApiKey: Boolean(settings.executorApiKey) });
         break;
       }

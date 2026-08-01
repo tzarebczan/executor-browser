@@ -654,10 +654,117 @@ pre.cmd {
 
 .connect-opt {
   margin: 0 0 12px;
+  padding: 8px;
+  border-radius: 9px;
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--card) 60%, var(--bg));
 }
 
 .connect-opt .mx-group-head {
   margin-bottom: 4px;
+}
+
+/* Connect tab status */
+.tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 25%, transparent);
+  flex-shrink: 0;
+}
+
+.tab-dot.warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
+.tab-dot.bad {
+  background: var(--bad);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 25%, transparent);
+}
+
+.conn-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 9px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+
+.conn-banner[data-state="ok"] {
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
+  background: color-mix(in srgb, var(--ok) 10%, var(--bg));
+}
+.conn-banner[data-state="ok"] .conn-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.conn-banner[data-state="ok"] .conn-copy strong {
+  color: var(--ok);
+}
+
+.conn-banner[data-state="run"] .conn-dot {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.conn-banner[data-state="warn"] {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+}
+.conn-banner[data-state="warn"] .conn-dot {
+  background: var(--warn);
+}
+.conn-banner[data-state="bad"] {
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--border));
+}
+.conn-banner[data-state="bad"] .conn-dot {
+  background: var(--bad);
+}
+
+.conn-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.conn-copy strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+.conn-sub {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+#connectForm.is-collapsed {
+  display: none;
+}
+
+#connectCard.is-connected .conn-banner {
+  margin-bottom: 8px;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 details.adv.below-fold {
