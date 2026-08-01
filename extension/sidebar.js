@@ -786,23 +786,49 @@ $("executorApiKey")?.addEventListener("change", () => {
 });
 
 function buildAgentPrompt(settings) {
-  const url = settings?.executorUrl || LAB_CANDIDATES[0];
+  const s = settings || lastStatus?.settings || {};
+  const url = s.executorUrl || LAB_CANDIDATES[0];
   const mcp = (url || "").replace(/\/$/, "") + "/mcp";
   const publicMcp =
-    settings?.publicEndpoint ||
+    s.publicEndpoint ||
     $("publicEndpoint")?.value?.trim() ||
     null;
-  const lines = [
-    `Executor MCP: ${mcp}`,
-    "Use Executor tools for this session.",
-  ];
-  if (publicMcp && (automationOk || settings?.chromeRegistered)) {
-    lines.push(`Chrome tools (desktop companion): ${publicMcp}`);
-    lines.push("Prefer take_snapshot. No performance traces.");
-  } else {
-    lines.push("No Chrome browser-drive — Executor API only (by design unless companion registered).");
+  const tabN = lastStatus?.tabs?.length || 0;
+  const group = s.groupTitle || "Executor";
+  const driveOn = Boolean(automationOk || s.chromeRegistered);
+
+  if (driveOn && publicMcp) {
+    return [
+      "Browser control is ON for this desktop session via Executor.",
+      "",
+      `Executor MCP: ${mcp}`,
+      `Chrome tools address: tools.chrome.user.desktop`,
+      `Companion endpoint (already registered): ${publicMcp}`,
+      "",
+      "How to use:",
+      `- Call tools under tools.chrome.user.desktop (navigate, click, type, fill, wait, …).`,
+      "- Prefer take_snapshot / a11y tree over screenshots. Do not start performance traces unless asked.",
+      `- Prefer the Chrome tab group titled “${group}” for agent work${tabN ? ` (${tabN} tab(s) already open)` : ""}.`,
+      "- Keep sessions in normal http(s) pages; chrome:// and extension pages are not controllable.",
+      "- If a chrome tool errors or connection is degraded, say so and stop inventing page state.",
+      "- Use other Executor tools as needed; browser tools only when the task needs the live page.",
+    ].join("\n");
   }
-  return lines.join("\n");
+
+  // API connected, no companion — be explicit so agents don't fake browser tools
+  return [
+    "Executor is connected. Browser drive is OFF for this session.",
+    "",
+    `Executor MCP: ${mcp}`,
+    "Use Executor tools (non-browser) as needed.",
+    "",
+    "Browser / tabs:",
+    "- Do NOT call tools.chrome.* — companion MCP is not registered on this desktop.",
+    `- The extension may show an “${group}” tab group locally; that is UX only, not agent CDP control.`,
+    "- You cannot open, click, type, or snapshot the user's Chrome from here.",
+    "- If the task needs a live browser: tell the user to start companion + Advanced → Register, then re-copy this prompt.",
+    "- Otherwise continue with non-browser tools only.",
+  ].join("\n");
 }
 
 function fillAgentPrompt(settings) {
