@@ -544,22 +544,34 @@ pre.cmd {
 }
 
 .mx {
-  display: grid;
-  grid-template-columns: 18px 1fr auto;
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
   font-size: 12px;
-  padding: 6px 8px;
+  padding: 7px 8px;
   border-radius: 7px;
   background: var(--bg);
   border: 1px solid var(--border);
+  min-width: 0;
+}
+
+.mx-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .mx-icon {
+  width: 16px;
   font-size: 11px;
   font-weight: 700;
   text-align: center;
   color: var(--muted);
+  flex-shrink: 0;
 }
 
 .mx.ok .mx-icon {
@@ -582,7 +594,7 @@ pre.cmd {
 .mx.skip,
 .mx.is-optional.skip {
   border-style: dashed;
-  opacity: 0.88;
+  opacity: 0.92;
 }
 
 .mx.bad {
@@ -592,6 +604,8 @@ pre.cmd {
 .mx-label {
   color: var(--text);
   font-weight: 550;
+  min-width: 0;
+  word-break: break-word;
 }
 
 .mx.skip .mx-label {
@@ -599,14 +613,51 @@ pre.cmd {
   font-weight: 500;
 }
 
-.mx-detail {
+/* Status pill — full text, wraps if needed; never mid-clip */
+.mx-pill {
+  flex: 0 1 auto;
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  padding: 3px 8px;
+  border-radius: 999px;
   color: var(--muted);
-  font-size: 11px;
+  background: var(--elevated);
+  white-space: normal;
   text-align: right;
-  max-width: 48%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
+}
+
+.mx-pill.ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.mx-pill.bad {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+}
+.mx-pill.warn {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.mx-pill.run {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.mx-pill.skip,
+.mx-pill.off {
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.connect-opt {
+  margin: 0 0 12px;
+}
+
+.connect-opt .mx-group-head {
+  margin-bottom: 4px;
 }
 
 details.adv.below-fold {

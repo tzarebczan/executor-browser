@@ -81,10 +81,16 @@ function matrixRow(state, label, detail = "", opts = {}) {
             ? "○"
             : "✕";
   const cls = [state, opts.optional ? "is-optional" : ""].filter(Boolean).join(" ");
+  // detail as pill — never ellipsis-cut mid-word in narrow panel
+  const detailHtml = detail
+    ? `<span class="mx-pill ${state}">${escapeHtml(detail)}</span>`
+    : "";
   return `<li class="mx ${cls}">
-    <span class="mx-icon" aria-hidden="true">${icon}</span>
-    <span class="mx-label">${escapeHtml(label)}</span>
-    ${detail ? `<span class="mx-detail">${escapeHtml(detail)}</span>` : ""}
+    <span class="mx-left">
+      <span class="mx-icon" aria-hidden="true">${icon}</span>
+      <span class="mx-label">${escapeHtml(label)}</span>
+    </span>
+    ${detailHtml}
   </li>`;
 }
 
@@ -129,14 +135,22 @@ function renderMatrices(status) {
         : "no key";
   const authState = authChecking ? "run" : f.connected ? "ok" : f.hasKey ? "warn" : "bad";
 
-  // Connect: core only + one optional line
+  // Connect: core only; optional block separate
   const connectRows = [
     matrixRow(f.executorReach ? "ok" : "bad", "Reachable", reachDetail),
     matrixRow(authState, "Auth", authDetail),
+  ].join("");
+
+  let drivePill;
+  if (f.automationOk) drivePill = "on";
+  else if (f.companionOn) drivePill = "companion only";
+  else drivePill = "off";
+
+  const connectOptRows = [
     matrixRow(
-      f.automationOk ? "ok" : "skip",
-      "Browser drive",
-      f.automationOk ? "on" : "optional · off",
+      f.automationOk ? "ok" : f.companionOn ? "warn" : "skip",
+      f.automationOk ? "Registered" : "Not enabled",
+      drivePill,
       { optional: true },
     ),
   ].join("");
@@ -160,10 +174,10 @@ function renderMatrices(status) {
     companionDetail = `${f.companion?.ms ?? "?"}ms · :9230`;
   } else {
     companionState = "skip";
-    companionDetail = "optional · not running";
+    companionDetail = "not running";
   }
 
-  // Chrome MCP = companion tools registered on Executor (not Executor's own /mcp)
+  // Chrome tools = companion registered on Executor (≠ Executor /mcp)
   let chromeState;
   let chromeDetail;
   if (f.automationOk) {
@@ -174,10 +188,10 @@ function renderMatrices(status) {
     chromeDetail = "needs companion";
   } else if (f.hasEndpoint) {
     chromeState = "warn";
-    chromeDetail = "endpoint set · not registered";
+    chromeDetail = "not registered";
   } else {
     chromeState = "skip";
-    chromeDetail = "optional · not registered";
+    chromeDetail = "not registered";
   }
 
   const driveRows = [
@@ -207,9 +221,9 @@ function renderMatrices(status) {
   ].join("");
 
   if ($("connectMatrix")) $("connectMatrix").innerHTML = connectRows;
+  if ($("connectMatrixOpt")) $("connectMatrixOpt").innerHTML = connectOptRows;
   if ($("agentMatrixCore")) $("agentMatrixCore").innerHTML = coreRows;
   if ($("agentMatrixDrive")) $("agentMatrixDrive").innerHTML = driveRows;
-  // legacy id if present
   if ($("agentMatrix") && !$("agentMatrixCore")) $("agentMatrix").innerHTML = coreRows + driveRows;
   if ($("advMatrix")) $("advMatrix").innerHTML = advRows;
 
