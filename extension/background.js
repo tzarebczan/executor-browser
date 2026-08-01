@@ -17,6 +17,8 @@ const DEFAULTS = {
   pairToken: "",
   publicEndpoint: "",
   registeredAt: 0,
+  /** true after successful companion MCP register with Executor */
+  chromeRegistered: false,
   mode: "existing", // existing | fresh | extension-only
   tailscaleHint: "",
   groupTitle: "Executor",
@@ -295,7 +297,7 @@ async function verifyExecutorAuth() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.3.0" },
+          clientInfo: { name: "executor-browser", version: "0.4.0" },
         },
       }),
     });
@@ -624,6 +626,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (result.ok) {
           await setSettings({
             registeredAt: Date.now(),
+            chromeRegistered: true,
             publicEndpoint: ep || (await getSettings()).publicEndpoint,
           });
         }

@@ -8,13 +8,19 @@ const LAB_CANDIDATES = [
 
 let lastStatus = null;
 let lastExecutorProbe = null;
+/** Auth verified this session (MCP initialize + key). */
+let authOk = false;
+let authChecking = false;
+/** Automation register result this session. */
+let automationOk = false;
+let bootDone = false;
 
 function toast(msg, kind = "ok") {
   const el = document.createElement("div");
   el.className = `toast ${kind}`;
   el.textContent = msg;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2800);
+  setTimeout(() => el.remove(), 2400);
 }
 
 function setStat(el, text, cls) {
@@ -57,27 +63,129 @@ document.querySelectorAll("[data-goto]").forEach((el) => {
   el.addEventListener("click", () => selectTab(el.dataset.goto));
 });
 
-function renderSetup(settings, executorOk, companionOk) {
+function matrixRow(state, label, detail = "") {
+  // state: ok | bad | warn | run | off
+  const icon =
+    state === "ok" ? "✓" : state === "run" ? "…" : state === "warn" ? "!" : state === "off" ? "○" : "✕";
+  return `<li class="mx ${state}">
+    <span class="mx-icon" aria-hidden="true">${icon}</span>
+    <span class="mx-label">${escapeHtml(label)}</span>
+    ${detail ? `<span class="mx-detail">${escapeHtml(detail)}</span>` : ""}
+  </li>`;
+}
+
+function deriveFlags(status) {
+  const settings = status?.settings || {};
+  const executor = status?.executor || lastExecutorProbe;
+  const companion = status?.companion;
+  const executorReach = Boolean(executor?.ok);
+  const hasKey = Boolean(settings.hasApiKey);
+  const registeredAt = Boolean(settings.registeredAt);
+  const companionOn = Boolean(companion?.ok);
+  const hasEndpoint = Boolean(settings.publicEndpoint || $("publicEndpoint")?.value?.trim());
+  // session auth wins; fall back to registeredAt if we verified before
+  const connected = authOk || (registeredAt && hasKey && executorReach);
+  return {
+    settings,
+    executor,
+    companion,
+    executorReach,
+    hasKey,
+    connected,
+    companionOn,
+    hasEndpoint,
+    automationOk: automationOk || Boolean(settings.chromeRegistered),
+    tabs: status?.tabs?.length || 0,
+  };
+}
+
+function renderMatrices(status) {
+  const f = deriveFlags(status);
+  const reachDetail = f.executorReach
+    ? `${f.executor?.ms != null ? f.executor.ms + "ms" : "up"}`
+    : f.settings.executorUrl
+      ? "offline"
+      : "no URL";
+  const authDetail = authChecking
+    ? "checking"
+    : f.connected
+      ? "verified"
+      : f.hasKey
+        ? "key saved"
+        : "no key";
+  const authState = authChecking ? "run" : f.connected ? "ok" : f.hasKey ? "warn" : "bad";
+  const autoState = f.automationOk ? "ok" : f.companionOn ? "warn" : "off";
+  const autoDetail = f.automationOk
+    ? "registered"
+    : f.companionOn
+      ? "companion only"
+      : "off";
+
+  const connectRows = [
+    matrixRow(f.executorReach ? "ok" : "bad", "Reachable", reachDetail),
+    matrixRow(authState, "Auth", authDetail),
+    matrixRow(autoState, "Automation", autoDetail),
+  ].join("");
+
+  const agentRows = [
+    matrixRow(f.executorReach ? "ok" : "bad", "Executor", reachDetail),
+    matrixRow(authState, "API key", authDetail),
+    matrixRow(f.companionOn ? "ok" : "off", "Companion :9230", f.companionOn ? `${f.companion?.ms ?? "?"}ms` : "—"),
+    matrixRow(
+      f.automationOk ? "ok" : f.hasEndpoint ? "warn" : "off",
+      "Chrome MCP",
+      f.automationOk ? "registered" : f.hasEndpoint ? "endpoint set" : "—",
+    ),
+    matrixRow(f.tabs > 0 ? "ok" : "off", "Agent tabs", String(f.tabs)),
+  ].join("");
+
+  const advRows = [
+    matrixRow(f.companionOn ? "ok" : "off", "Companion", f.companionOn ? "healthy" : "not running"),
+    matrixRow(f.hasEndpoint ? "ok" : "off", "Public MCP", f.hasEndpoint ? "set" : "—"),
+    matrixRow(f.automationOk ? "ok" : "off", "Registered", f.automationOk ? "yes" : "no"),
+  ].join("");
+
+  if ($("connectMatrix")) $("connectMatrix").innerHTML = connectRows;
+  if ($("agentMatrix")) $("agentMatrix").innerHTML = agentRows;
+  if ($("advMatrix")) $("advMatrix").innerHTML = advRows;
+
+  if ($("useBadge")) {
+    $("useBadge").textContent = f.connected ? (f.automationOk ? "full" : "api") : "setup";
+    $("useBadge").className = f.connected ? "badge" : "badge soft";
+  }
+
+  if ($("nextHint")) {
+    if (!f.executorReach) $("nextHint").textContent = "Join Tailscale · Detect on Connect.";
+    else if (!f.hasKey) $("nextHint").textContent = "Paste API key on Connect (auto-verifies).";
+    else if (!f.connected) $("nextHint").textContent = "Key present — verifying…";
+    else if (!f.automationOk)
+      $("nextHint").textContent =
+        "API ready. Optional: Advanced → companion for browser drive.";
+    else $("nextHint").textContent = "Ready for agents · copy prompt below.";
+  }
+
+  if ($("advSummary")) {
+    $("advSummary").textContent = f.automationOk
+      ? "on"
+      : f.companionOn
+        ? "companion up"
+        : "optional";
+  }
+}
+
+function renderSetup(status) {
   const banner = $("setupBanner");
-  const hasKey = Boolean(settings?.hasApiKey);
-  const hasUrl = Boolean(settings?.executorUrl);
-  const connected = Boolean(settings?.registeredAt) && executorOk;
-
+  const f = deriveFlags(status);
   const steps = [];
-  if (!hasUrl || !executorOk) {
-    steps.push({ done: executorOk && hasUrl, text: "Reach Executor (Tailscale)" });
-  } else {
-    steps.push({ done: true, text: "Executor reachable" });
-  }
-  if (!hasKey) {
-    steps.push({ done: false, text: "Paste personal API key" });
-  } else if (!connected) {
-    steps.push({ done: false, text: "Tap Connect to verify key" });
-  } else {
-    steps.push({ done: true, text: "API key connected" });
-  }
 
-  const allDone = steps.every((s) => s.done);
+  if (!f.executorReach) steps.push({ done: false, text: "Reach Executor (Tailscale)" });
+  else steps.push({ done: true, text: "Executor reachable" });
+
+  if (!f.hasKey) steps.push({ done: false, text: "Paste API key" });
+  else if (!f.connected) steps.push({ done: authChecking, text: authChecking ? "Verifying…" : "Connect" });
+  else steps.push({ done: true, text: "Auth OK" });
+
+  const allDone = f.connected && f.executorReach;
   if (allDone) {
     banner.hidden = true;
   } else {
@@ -92,10 +200,10 @@ function renderSetup(settings, executorOk, companionOk) {
       )
       .join("");
     const actions = [];
-    if (!executorOk) {
-      actions.push(`<button type="button" class="primary sm" data-qa="detect">Detect Executor</button>`);
+    if (!f.executorReach) {
+      actions.push(`<button type="button" class="primary sm" data-qa="detect">Detect</button>`);
     }
-    if (!hasKey || !connected) {
+    if (!f.hasKey || !f.connected) {
       actions.push(`<button type="button" class="primary sm" data-qa="connect">Connect…</button>`);
     }
     $("quickActions").innerHTML = actions.join("");
@@ -107,10 +215,12 @@ function renderSetup(settings, executorOk, companionOk) {
     });
   }
 
-  if (!executorOk) $("headerStatus").textContent = "Executor unreachable";
-  else if (!hasKey) $("headerStatus").textContent = "Paste API key to connect";
-  else if (!connected) $("headerStatus").textContent = "Key saved · tap Connect";
-  else if (companionOk) $("headerStatus").textContent = "Connected · automation on";
+  // Header
+  if (authChecking) $("headerStatus").textContent = "Connecting…";
+  else if (!f.executorReach) $("headerStatus").textContent = "Executor offline";
+  else if (!f.hasKey) $("headerStatus").textContent = "Needs API key";
+  else if (!f.connected) $("headerStatus").textContent = "Auth failed";
+  else if (f.automationOk) $("headerStatus").textContent = "Connected · automation";
   else $("headerStatus").textContent = "Connected";
 }
 
@@ -123,23 +233,17 @@ async function refresh() {
   const executorOk = Boolean(executor?.ok);
   if (executorOk) {
     setStat($("executorStat"), executor.ms != null ? `${executor.ms}ms` : "online", "ok");
-    $("executorReachHint").textContent = `Reachable · ${settings.executorUrl || "lab"}`;
   } else {
     setStat($("executorStat"), settings?.executorUrl ? "offline" : "—", "bad");
-    $("executorReachHint").textContent =
-      "Connect over Tailscale with a personal API key. No companion app required.";
   }
 
-  if (companion?.ok) {
+  // Home strip: automation = companion + register when known
+  if (automationOk || (companion?.ok && settings?.publicEndpoint && settings?.registeredAt)) {
     setStat($("companionStat"), "on", "ok");
-    $("companionDetail").textContent = `Companion healthy · ${companion.ms ?? "?"}ms`;
-    $("autoSummary").textContent = "on";
+  } else if (companion?.ok) {
+    setStat($("companionStat"), "local", "warn");
   } else {
     setStat($("companionStat"), "off", "warn");
-    $("companionDetail").textContent =
-      companion?.error ||
-      "Optional. Needed only if remote agents should drive this Chrome via CDP/MCP.";
-    $("autoSummary").textContent = "off";
   }
 
   const n = tabs?.length || 0;
@@ -201,7 +305,14 @@ async function refresh() {
       .join("");
   }
 
-  renderSetup(settings, executorOk, Boolean(companion?.ok));
+  // If we previously registered and still have key + reach, treat as connected
+  if (settings.registeredAt && settings.hasApiKey && executorOk && !authOk && !authChecking) {
+    authOk = true;
+  }
+
+  renderSetup(status);
+  renderMatrices(status);
+  fillAgentPrompt(settings);
 }
 
 function friendlyCaptureError(err) {
@@ -258,103 +369,50 @@ async function saveMode() {
   if (mode) await chrome.runtime.sendMessage({ type: "saveSettings", settings: { mode } });
 }
 
-document.querySelectorAll("[data-preset]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll("[data-preset]").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    if (btn.dataset.preset === "lab") {
-      $("executorUrl").value = LAB_CANDIDATES[0];
-      $("labBadge").textContent = "Lab";
-    } else {
-      $("labBadge").textContent = "Custom";
-      $("executorUrl").focus();
-    }
+/** Auto-verify API key against Executor MCP. */
+async function autoConnect({ quiet = true } = {}) {
+  const s = lastStatus?.settings;
+  if (!s?.hasApiKey && !$("executorApiKey")?.value?.trim()) return { ok: false, skipped: true };
+  const url = $("executorUrl")?.value?.trim() || s?.executorUrl;
+  if (!url) return { ok: false, skipped: true };
+
+  authChecking = true;
+  renderSetup(lastStatus);
+  renderMatrices(lastStatus);
+
+  const key = $("executorApiKey")?.value?.trim();
+  await chrome.runtime.sendMessage({
+    type: "saveSecrets",
+    executorUrl: url,
+    executorApiKey: key || undefined,
   });
-});
 
-$("btnRefresh").addEventListener("click", () => refresh());
-$("btnCapture").addEventListener("click", () => capture({ focus: true }));
-$("btnCaptureTabs")?.addEventListener("click", () => capture({ focus: true }));
-$("btnOpenTab").addEventListener("click", () => openAgentTab());
-$("btnOpenTabHome").addEventListener("click", () => openAgentTab());
-
-$("btnDebug").addEventListener("click", async () => {
-  try {
-    await chrome.tabs.create({ url: "chrome://inspect/#remote-debugging" });
-    toast("Allow remote debugging once");
-  } catch {
-    toast("Open chrome://inspect/#remote-debugging manually", "bad");
-  }
-});
-
-$("btnCopyCompanionCmd")?.addEventListener("click", async () => {
-  const cmd =
-    $("companionCmd")?.textContent?.trim() ||
-    "node infra/host/chrome-agent/start-companion.mjs";
-  try {
-    await navigator.clipboard.writeText(cmd);
-    toast("Copied — run from tbd repo (Node 18+). Win/macOS/Linux.");
-  } catch {
-    toast(cmd, "ok");
-  }
-});
-
-$("btnRecheckCompanion")?.addEventListener("click", async () => {
-  $("companionDetail").textContent = "Checking companion on :9230…";
-  await refresh();
-  const c = lastStatus?.companion;
-  if (c?.ok) {
-    toast("Companion online");
-    $("companionDetail").textContent = `Companion healthy · ${c.ms ?? "?"}ms on 127.0.0.1:9230`;
-  } else {
-    toast("Companion offline — run the PowerShell start script", "bad");
-    $("companionDetail").textContent =
-      c?.error ||
-      "Offline. From tbd repo: Start-CompanionHidden.ps1 (after remote debugging Allow).";
-  }
-});
-
-$("btnDetectExecutor").addEventListener("click", async () => {
-  $("connectHint").textContent = "Probing lab Executor…";
-  const res = await chrome.runtime.sendMessage({
-    type: "detectExecutor",
-    candidates: LAB_CANDIDATES.concat([$("executorUrl").value.trim()].filter(Boolean)),
-  });
-  if (res?.ok && res.url) {
-    $("executorUrl").value = res.url;
-    await chrome.runtime.sendMessage({
-      type: "saveSecrets",
-      executorUrl: res.url,
-    });
-    $("connectHint").textContent = `Found Executor · ${res.ms ?? "?"}ms · ${res.url}`;
-    toast("Executor found");
-  } else {
-    $("connectHint").textContent =
-      res?.error || "Not reachable. Join Tailscale and try again, or paste the URL.";
-    toast("Executor not found", "bad");
-  }
-  await refresh();
-});
-
-$("btnTestExecutor").addEventListener("click", async () => {
-  const url = $("executorUrl").value.trim();
-  if (!url) {
-    toast("Enter base URL first", "bad");
-    return;
-  }
-  await chrome.runtime.sendMessage({ type: "saveSecrets", executorUrl: url });
-  const res = await chrome.runtime.sendMessage({ type: "probeExecutor" });
+  const res = await chrome.runtime.sendMessage({ type: "verifyExecutorAuth" });
+  authChecking = false;
   if (res?.ok) {
-    $("connectHint").textContent = `OK · HTTP ${res.status ?? 200} · ${res.ms ?? "?"}ms`;
-    toast("Executor reachable");
+    authOk = true;
+    await chrome.runtime.sendMessage({
+      type: "saveSettings",
+      settings: { registeredAt: Date.now() },
+    });
+    if (!quiet) {
+      $("connectHint").textContent = "Connected";
+      toast("Connected");
+    } else if ($("connectHint")) {
+      $("connectHint").textContent = "Auto-connected";
+    }
   } else {
-    $("connectHint").textContent = res?.error || "Unreachable";
-    toast("Probe failed", "bad");
+    authOk = false;
+    if ($("connectHint")) {
+      $("connectHint").textContent = res?.error || "Auth failed";
+    }
+    if (!quiet) toast(res?.error || "Connect failed", "bad");
   }
   await refresh();
-});
+  return res;
+}
 
-/** Same WebRTC trick in the side panel (more reliable than SW). */
+/** WebRTC Tailscale IP (panel). */
 function detectTsWebRtc(timeoutMs = 2800) {
   return new Promise((resolve) => {
     const ips = new Set();
@@ -390,10 +448,154 @@ function detectTsWebRtc(timeoutMs = 2800) {
   });
 }
 
+/** Advanced: find companion + TS IP; register if auth + companion ready. */
+async function autoAdvanced({ register = true } = {}) {
+  const companion = await chrome.runtime.sendMessage({ type: "checkCompanion" });
+  if (!companion?.ok) {
+    if ($("advancedHint")) $("advancedHint").textContent = "Companion offline";
+    automationOk = false;
+    await refresh();
+    return { companion: false };
+  }
+
+  let endpoint = $("publicEndpoint")?.value?.trim() || lastStatus?.settings?.publicEndpoint;
+  if (!endpoint) {
+    let ip = await detectTsWebRtc();
+    if (!ip) {
+      const res = await chrome.runtime.sendMessage({ type: "detectTailscale" });
+      if (res?.ok && res.ip) ip = res.ip;
+    }
+    if (ip) {
+      endpoint = `http://${ip}:9230/mcp`;
+      $("publicEndpoint").value = endpoint;
+      await chrome.runtime.sendMessage({ type: "saveSecrets", publicEndpoint: endpoint });
+    }
+  }
+
+  if (!register || !authOk || !endpoint) {
+    if ($("advancedHint")) {
+      $("advancedHint").textContent = endpoint
+        ? `Companion up · ${endpoint}`
+        : "Companion up · set MCP URL";
+    }
+    await refresh();
+    return { companion: true, endpoint, registered: false };
+  }
+
+  // Already registered
+  if (lastStatus?.settings?.chromeRegistered && lastStatus?.settings?.publicEndpoint === endpoint) {
+    automationOk = true;
+    if ($("advancedHint")) $("advancedHint").textContent = "Automation already registered";
+    await refresh();
+    return { companion: true, endpoint, registered: true };
+  }
+
+  if ($("advancedHint")) $("advancedHint").textContent = "Registering automation…";
+  const res = await chrome.runtime.sendMessage({
+    type: "registerExecutor",
+    endpoint,
+  });
+  automationOk = Boolean(res?.ok);
+  if ($("advancedHint")) {
+    $("advancedHint").textContent = res?.ok
+      ? "Automation registered"
+      : res?.error || "Register failed";
+  }
+  if (res?.ok) toast("Automation on");
+  await refresh();
+  return { companion: true, endpoint, registered: automationOk };
+}
+
+// ── events ──────────────────────────────────────────────
+
+document.querySelectorAll("[data-preset]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-preset]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    if (btn.dataset.preset === "lab") {
+      $("executorUrl").value = LAB_CANDIDATES[0];
+      $("labBadge").textContent = "Lab";
+    } else {
+      $("labBadge").textContent = "Custom";
+      $("executorUrl").focus();
+    }
+  });
+});
+
+$("btnRefresh").addEventListener("click", async () => {
+  await refresh();
+  await autoConnect({ quiet: true });
+  await autoAdvanced({ register: true });
+});
+
+$("btnCapture").addEventListener("click", () => capture({ focus: true }));
+$("btnCaptureTabs")?.addEventListener("click", () => capture({ focus: true }));
+$("btnOpenTab").addEventListener("click", () => openAgentTab());
+$("btnOpenTabHome").addEventListener("click", () => openAgentTab());
+
+$("btnDebug").addEventListener("click", async () => {
+  try {
+    await chrome.tabs.create({ url: "chrome://inspect/#remote-debugging" });
+    toast("Allow remote debugging once");
+  } catch {
+    toast("Open chrome://inspect/#remote-debugging manually", "bad");
+  }
+});
+
+$("btnCopyCompanionCmd")?.addEventListener("click", async () => {
+  const cmd =
+    $("companionCmd")?.textContent?.trim() ||
+    "node infra/host/chrome-agent/start-companion.mjs";
+  try {
+    await navigator.clipboard.writeText(cmd);
+    toast("Copied");
+  } catch {
+    toast(cmd, "ok");
+  }
+});
+
+$("btnRecheckCompanion")?.addEventListener("click", async () => {
+  await autoAdvanced({ register: true });
+  toast(lastStatus?.companion?.ok ? "Companion online" : "Companion offline", lastStatus?.companion?.ok ? "ok" : "bad");
+});
+
+$("btnDetectExecutor").addEventListener("click", async () => {
+  $("connectHint").textContent = "Probing…";
+  const res = await chrome.runtime.sendMessage({
+    type: "detectExecutor",
+    candidates: LAB_CANDIDATES.concat([$("executorUrl").value.trim()].filter(Boolean)),
+  });
+  if (res?.ok && res.url) {
+    $("executorUrl").value = res.url;
+    await chrome.runtime.sendMessage({ type: "saveSecrets", executorUrl: res.url });
+    $("connectHint").textContent = `Found · ${res.ms ?? "?"}ms`;
+    toast("Executor found");
+    await refresh();
+    await autoConnect({ quiet: true });
+  } else {
+    $("connectHint").textContent = res?.error || "Not reachable";
+    toast("Not found", "bad");
+    await refresh();
+  }
+});
+
+$("btnTestExecutor").addEventListener("click", async () => {
+  const url = $("executorUrl").value.trim();
+  if (!url) {
+    toast("Enter URL", "bad");
+    return;
+  }
+  await chrome.runtime.sendMessage({ type: "saveSecrets", executorUrl: url });
+  const res = await chrome.runtime.sendMessage({ type: "probeExecutor" });
+  $("connectHint").textContent = res?.ok
+    ? `OK · ${res.ms ?? "?"}ms`
+    : res?.error || "Unreachable";
+  toast(res?.ok ? "Reachable" : "Failed", res?.ok ? "ok" : "bad");
+  await refresh();
+});
+
 $("btnDetectTs").addEventListener("click", async () => {
-  $("advAutomation").open = true;
-  toast("Detecting Tailscale IP…");
-  // Panel WebRTC first (Executor 30ms only proves *server* is up, not *your* IP)
+  $("advPanel").open = true;
   let ip = await detectTsWebRtc();
   let source = "webrtc";
   if (!ip) {
@@ -402,85 +604,62 @@ $("btnDetectTs").addEventListener("click", async () => {
       ip = res.ip;
       source = res.source || "bg";
     } else {
-      toast(res?.error || "Could not detect Tailscale IP", "bad");
-      $("connectHint").textContent =
-        "Executor online ≠ desktop Tailscale IP. Run `tailscale ip -4` and paste http://100.x.x.x:9230/mcp";
+      toast(res?.error || "No TS IP", "bad");
       return;
     }
   }
   $("publicEndpoint").value = `http://${ip}:9230/mcp`;
-  toast(`Tailscale ${ip} (${source})`);
-  $("connectHint").textContent = `MCP URL set from ${source}: http://${ip}:9230/mcp`;
+  await chrome.runtime.sendMessage({
+    type: "saveSecrets",
+    publicEndpoint: `http://${ip}:9230/mcp`,
+  });
+  toast(`${ip} (${source})`);
+  await refresh();
 });
 
-/** Primary connect: verify API key against Executor MCP (no companion). */
 $("btnConnect").addEventListener("click", async () => {
   const btn = $("btnConnect");
   btn.disabled = true;
-  $("connectHint").textContent = "Verifying API key…";
+  $("connectHint").textContent = "Connecting…";
 
   const executorUrl = $("executorUrl").value.trim();
   const executorApiKey = $("executorApiKey").value.trim();
   if (!executorUrl) {
-    $("connectHint").textContent = "Base URL required.";
+    $("connectHint").textContent = "URL required";
     btn.disabled = false;
     return;
   }
   if (!executorApiKey && !lastStatus?.settings?.hasApiKey) {
-    $("connectHint").textContent = "Paste a personal API key from Executor settings.";
+    $("connectHint").textContent = "API key required";
     btn.disabled = false;
     return;
   }
 
-  await chrome.runtime.sendMessage({
-    type: "saveSecrets",
-    executorUrl,
-    executorApiKey: executorApiKey || undefined,
-  });
   await saveMode();
-
-  const res = await chrome.runtime.sendMessage({ type: "verifyExecutorAuth" });
+  const res = await autoConnect({ quiet: false });
   btn.disabled = false;
-  if (res?.ok) {
-    $("connectHint").textContent = "Connected. API key works with Executor MCP.";
-    toast("Connected to Executor");
-    await chrome.runtime.sendMessage({
-      type: "saveSettings",
-      settings: { registeredAt: Date.now() },
-    });
-  } else {
-    $("connectHint").textContent =
-      res?.error ||
-      "Auth failed. Check the key (Settings → API keys) and that you're on Tailscale.";
-    toast(res?.error || "Connect failed", "bad");
-  }
-  await refresh();
+  if (res?.ok) await autoAdvanced({ register: true });
 });
 
-/** Optional: register companion MCP so agents can drive the browser. */
 $("btnRegisterAutomation").addEventListener("click", async () => {
   const endpoint = $("publicEndpoint").value.trim();
-  $("connectHint").textContent = "Registering automation endpoint…";
-  await chrome.runtime.sendMessage({
-    type: "saveSecrets",
-    executorUrl: $("executorUrl").value.trim() || undefined,
-    executorApiKey: $("executorApiKey").value.trim() || undefined,
-    publicEndpoint: endpoint || undefined,
-  });
+  if (endpoint) {
+    await chrome.runtime.sendMessage({
+      type: "saveSecrets",
+      publicEndpoint: endpoint,
+      executorUrl: $("executorUrl").value.trim() || undefined,
+      executorApiKey: $("executorApiKey").value.trim() || undefined,
+    });
+  }
+  $("advancedHint").textContent = "Registering…";
   const res = await chrome.runtime.sendMessage({
     type: "registerExecutor",
     endpoint: endpoint || undefined,
   });
-  if (res?.ok) {
-    $("connectHint").textContent = "Automation registered · tools.chrome.user.desktop";
-    toast("Automation registered");
-  } else {
-    $("connectHint").textContent =
-      res?.error ||
-      "Register failed — need companion/MCP up, Tailscale IP, ALLOW_LOCAL_NETWORK.";
-    toast(res?.error || "Register failed", "bad");
-    $("advAutomation").open = true;
-  }
+  automationOk = Boolean(res?.ok);
+  $("advancedHint").textContent = res?.ok ? "Registered" : res?.error || "Failed";
+  toast(res?.ok ? "Registered" : res?.error || "Failed", res?.ok ? "ok" : "bad");
+  if (!res?.ok) $("advPanel").open = true;
   await refresh();
 });
 
@@ -493,25 +672,36 @@ document.querySelectorAll('input[name="mode"]').forEach((el) => {
   el.addEventListener("change", () => saveMode());
 });
 
+// Re-run advanced auto when user expands it
+$("advPanel")?.addEventListener("toggle", () => {
+  if ($("advPanel").open) autoAdvanced({ register: true });
+});
+
+// Auto-connect when user finishes pasting a key
+$("executorApiKey")?.addEventListener("change", () => {
+  autoConnect({ quiet: false }).then((r) => {
+    if (r?.ok) autoAdvanced({ register: true });
+  });
+});
+
 function buildAgentPrompt(settings) {
   const url = settings?.executorUrl || LAB_CANDIDATES[0];
   const mcp = (url || "").replace(/\/$/, "") + "/mcp";
   const publicMcp =
     settings?.publicEndpoint ||
     $("publicEndpoint")?.value?.trim() ||
-    "http://<your-tailscale-ip>:9230/mcp";
-  return [
-    "You have access to Executor MCP tools.",
-    `Executor base: ${url}`,
+    null;
+  const lines = [
     `Executor MCP: ${mcp}`,
-    "",
-    "If browser control is registered:",
-    `- Chrome MCP endpoint (desktop): ${publicMcp}`,
-    "- Use tools.chrome / executor browser tools against my desktop connection.",
-    "- Prefer take_snapshot over screenshots. Don't start performance traces.",
-    "",
-    "If browser tools are unavailable, say so and continue with non-browser tools.",
-  ].join("\n");
+    "Use Executor tools for this session.",
+  ];
+  if (publicMcp && (automationOk || settings?.registeredAt)) {
+    lines.push(`Chrome MCP (desktop): ${publicMcp}`);
+    lines.push("Prefer take_snapshot. No performance traces.");
+  } else {
+    lines.push("Browser drive not registered — API tools only.");
+  }
+  return lines.join("\n");
 }
 
 function fillAgentPrompt(settings) {
@@ -524,9 +714,9 @@ $("btnCopyAgentPrompt")?.addEventListener("click", async () => {
   const text = $("agentPrompt")?.value || buildAgentPrompt(lastStatus?.settings);
   try {
     await navigator.clipboard.writeText(text);
-    toast("Agent prompt copied");
+    toast("Copied");
   } catch {
-    toast("Select the box and copy manually", "bad");
+    toast("Copy failed", "bad");
   }
 });
 
@@ -541,14 +731,16 @@ $("btnSaveAdvanced")?.addEventListener("click", async () => {
       groupTitle: $("groupTitle")?.value.trim() || "Executor",
     },
   });
-  if ($("advancedHint")) $("advancedHint").textContent = "Saved advanced settings.";
-  toast("Advanced settings saved");
+  if ($("advancedHint")) $("advancedHint").textContent = "Saved";
+  toast("Saved");
   await refresh();
 });
 
-// Boot: detect if empty, then refresh
+// Boot: detect → auto-connect → advanced auto-find
 (async () => {
+  $("headerStatus").textContent = "Connecting…";
   await refresh();
+
   if (!lastStatus?.settings?.executorUrl) {
     const det = await chrome.runtime.sendMessage({
       type: "detectExecutor",
@@ -560,19 +752,36 @@ $("btnSaveAdvanced")?.addEventListener("click", async () => {
     } else {
       $("executorUrl").value = LAB_CANDIDATES[0];
     }
+    await refresh();
   }
-  // Prefill advanced fields from settings
+
   const s = lastStatus?.settings;
   if ($("healthUrl")) $("healthUrl").value = s?.companionHealthUrl || "http://127.0.0.1:9230/healthz";
   if ($("mcpUrl")) $("mcpUrl").value = s?.companionMcpUrl || "http://127.0.0.1:9230/mcp";
   if ($("groupTitle")) $("groupTitle").value = s?.groupTitle || "Executor";
-  fillAgentPrompt(s);
-  await refresh();
+
+  // Auto-connect whenever a key is already stored
+  if (s?.hasApiKey) {
+    await autoConnect({ quiet: true });
+  }
+
+  // Below-fold: probe companion / TS / register if possible
+  await autoAdvanced({ register: Boolean(authOk) });
+
   fillAgentPrompt(lastStatus?.settings);
-  // Soft capture — never block on failure
-  setTimeout(() => capture({ focus: false }), 500);
+  bootDone = true;
+  setTimeout(() => capture({ focus: false }), 400);
 })();
 
-setInterval(() => {
-  refresh().then(() => fillAgentPrompt(lastStatus?.settings));
-}, 12000);
+setInterval(async () => {
+  await refresh();
+  // Soft re-auth if we thought we were connected but reach died
+  if (lastStatus?.settings?.hasApiKey && !authOk && lastStatus?.executor?.ok) {
+    await autoConnect({ quiet: true });
+  }
+  // Soft re-check companion
+  if (authOk) {
+    const c = lastStatus?.companion;
+    if (c?.ok && !automationOk) await autoAdvanced({ register: true });
+  }
+}, 15000);

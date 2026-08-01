@@ -469,19 +469,80 @@ pre.cmd {
   font-family: ui-monospace, Consolas, monospace;
 }
 
-.howto {
-  margin: 0 0 12px;
-  padding-left: 1.2rem;
-  color: var(--muted);
+/* Detection status matrix */
+.matrix {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.matrix.tight {
+  margin-bottom: 8px;
+}
+
+.mx {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 8px;
+  align-items: center;
   font-size: 12px;
-  line-height: 1.45;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border);
 }
 
-.howto li {
-  margin-bottom: 6px;
+.mx-icon {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--muted);
 }
 
-.howto strong {
+.mx.ok .mx-icon {
+  color: var(--ok);
+}
+.mx.bad .mx-icon {
+  color: var(--bad);
+}
+.mx.warn .mx-icon {
+  color: var(--warn);
+}
+.mx.run .mx-icon {
+  color: var(--accent);
+}
+.mx.off .mx-icon {
+  color: var(--muted);
+}
+
+.mx-label {
+  color: var(--text);
+  font-weight: 550;
+}
+
+.mx-detail {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+details.adv.below-fold {
+  margin-top: 4px;
+  margin-bottom: 16px;
+}
+
+details.adv.below-fold summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
   color: var(--text);
 }
 

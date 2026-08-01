@@ -12,7 +12,7 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Executor</h1>
-          <p class="tag" id="headerStatus">Checking…</p>
+          <p class="tag" id="headerStatus">Connecting…</p>
         </div>
       </div>
       <button type="button" class="icon-btn" id="btnRefresh" title="Refresh">↻</button>
@@ -29,7 +29,7 @@
       <button type="button" class="tab" data-tab="tabs" role="tab" aria-selected="false">
         Tabs <span class="tab-count" id="tabCount">0</span>
       </button>
-      <button type="button" class="tab" data-tab="more" role="tab" aria-selected="false">More</button>
+      <button type="button" class="tab" data-tab="more" role="tab" aria-selected="false">Agents</button>
     </nav>
 
     <!-- HOME -->
@@ -60,7 +60,7 @@
         </button>
         <button type="button" class="stat" data-goto="connect" id="statCompanion">
           <span class="stat-label">Automation</span>
-          <span class="stat-value" id="companionStat">off</span>
+          <span class="stat-value" id="companionStat">—</span>
         </button>
         <button type="button" class="stat" data-goto="tabs">
           <span class="stat-label">Agent tabs</span>
@@ -79,7 +79,7 @@
       </div>
     </section>
 
-    <!-- CONNECT: API key first; companion optional -->
+    <!-- CONNECT -->
     <section class="panel" data-panel="connect" role="tabpanel" hidden>
       <div class="card">
         <div class="card-head">
@@ -87,13 +87,11 @@
           <span class="badge" id="labBadge">Lab</span>
         </div>
 
-        <p class="hint tight" id="executorReachHint">
-          Connect over Tailscale with a personal API key. No companion app required.
-        </p>
+        <ul class="matrix" id="connectMatrix" aria-live="polite"></ul>
 
         <div class="preset-row">
-          <button type="button" class="chip active" data-preset="lab">Lab (auto)</button>
-          <button type="button" class="chip" data-preset="custom">Custom URL</button>
+          <button type="button" class="chip active" data-preset="lab">Lab</button>
+          <button type="button" class="chip" data-preset="custom">Custom</button>
         </div>
 
         <label class="field">
@@ -105,7 +103,7 @@
               placeholder="https://lab-agents…ts.net:8444"
               autocomplete="off"
             />
-            <button type="button" class="ghost sm" id="btnDetectExecutor" title="Probe lab Tailscale">
+            <button type="button" class="ghost sm" id="btnDetectExecutor" title="Probe lab">
               Detect
             </button>
           </div>
@@ -116,68 +114,53 @@
           <input
             id="executorApiKey"
             type="password"
-            placeholder="Paste personal API key"
+            placeholder="Personal API key"
             autocomplete="off"
           />
         </label>
-        <p class="hint tight">
-          In Executor → <strong>Settings → API keys</strong> (or your account menu) → create a
-          personal key → paste here. Stored only in this browser profile.
-        </p>
 
         <div class="actions stack">
           <button type="button" class="primary" id="btnConnect">Connect</button>
-          <button type="button" class="ghost" id="btnTestExecutor">Test connection</button>
+          <button type="button" class="ghost" id="btnTestExecutor">Test reachability</button>
         </div>
         <p class="hint" id="connectHint" role="status"></p>
       </div>
 
-      <details class="adv" id="advAutomation">
+      <!-- Advanced: below fold; auto-detect companion / TS / register -->
+      <details class="adv below-fold" id="advPanel">
         <summary>
-          Optional · browser automation
-          <span class="muted" id="autoSummary">off</span>
+          Advanced
+          <span class="muted" id="advSummary">optional</span>
         </summary>
-        <p class="hint tight">
-          <strong>Connect above does not need this.</strong> API key is enough for pairing,
-          tabs, and preview. Automation is only if remote agents should <em>drive</em> this Chrome.
-        </p>
-        <p class="hint tight">
-          <strong>Can Executor include the companion?</strong> Not really — Executor runs on the
-          <em>server</em> (lab-agents). Browser control must run on <em>your PC</em> next to Chrome.
-          Today that is a small local process (PowerShell + Node MCP), not something the server
-          can install into the extension alone.
-        </p>
+
+        <p class="hint tight">Browser automation (companion on this PC). Not required for API connect.</p>
+
+        <ul class="matrix tight" id="advMatrix"></ul>
 
         <div class="install-steps" id="companionInstall">
           <div class="install-step">
             <span class="n">1</span>
             <div>
-              <strong>Allow remote debugging</strong>
-              <p class="hint tight">
-                Open <code>chrome://inspect/#remote-debugging</code> → Allow (once per Chrome profile).
-              </p>
-              <button type="button" class="ghost sm" id="btnDebug">Open remote debugging</button>
+              <strong>Remote debugging</strong>
+              <p class="hint tight"><code>chrome://inspect/#remote-debugging</code> → Allow</p>
+              <button type="button" class="ghost sm" id="btnDebug">Open</button>
             </div>
           </div>
           <div class="install-step">
             <span class="n">2</span>
             <div>
-              <strong>Start the companion on this PC</strong>
-              <p class="hint tight">
-                From the <code>tbd</code> repo (lab scripts). Leaves a process on
-                <code>127.0.0.1:9230</code> (MCP). Not packaged as an .exe yet.
-              </p>
+              <strong>Companion</strong>
               <pre class="cmd" id="companionCmd">node infra/host/chrome-agent/start-companion.mjs</pre>
               <div class="actions">
-                <button type="button" class="ghost sm" id="btnCopyCompanionCmd">Copy command</button>
-                <button type="button" class="ghost sm" id="btnRecheckCompanion">Recheck companion</button>
+                <button type="button" class="ghost sm" id="btnCopyCompanionCmd">Copy</button>
+                <button type="button" class="ghost sm" id="btnRecheckCompanion">Recheck</button>
               </div>
             </div>
           </div>
           <div class="install-step">
             <span class="n">3</span>
             <div>
-              <strong>Public MCP URL</strong> (so Executor can call your PC over Tailscale)
+              <strong>MCP endpoint</strong>
               <label class="field">
                 <input
                   id="publicEndpoint"
@@ -187,13 +170,29 @@
                 />
               </label>
               <div class="actions">
-                <button type="button" class="ghost sm" id="btnDetectTs">Detect Tailscale IP</button>
-                <button type="button" class="primary sm" id="btnRegisterAutomation">Register with Executor</button>
+                <button type="button" class="ghost sm" id="btnDetectTs">Detect TS IP</button>
+                <button type="button" class="primary sm" id="btnRegisterAutomation">Register</button>
               </div>
             </div>
           </div>
         </div>
-        <p class="hint" id="companionDetail">Companion status: not required for Connect.</p>
+
+        <label class="field">
+          Health URL
+          <input id="healthUrl" type="url" placeholder="http://127.0.0.1:9230/healthz" autocomplete="off" />
+        </label>
+        <label class="field">
+          Local MCP
+          <input id="mcpUrl" type="url" placeholder="http://127.0.0.1:9230/mcp" autocomplete="off" />
+        </label>
+        <label class="field">
+          Tab group
+          <input id="groupTitle" type="text" placeholder="Executor" autocomplete="off" />
+        </label>
+        <div class="actions">
+          <button type="button" class="ghost sm" id="btnSaveAdvanced">Save</button>
+        </div>
+        <p class="hint" id="advancedHint" role="status"></p>
       </details>
     </section>
 
@@ -219,80 +218,50 @@
           <input type="radio" name="mode" value="existing" checked />
           <span>
             <strong>This Chrome</strong>
-            <small>Keep logins · optional remote debugging</small>
+            <small>Keep logins · optional CDP</small>
           </span>
         </label>
         <label class="radio">
           <input type="radio" name="mode" value="fresh" />
           <span>
             <strong>Fresh profile</strong>
-            <small>Isolated window (automation helper)</small>
+            <small>Isolated · needs companion</small>
           </span>
         </label>
         <label class="radio">
           <input type="radio" name="mode" value="extension-only" />
           <span>
             <strong>Extension only</strong>
-            <small>Groups + preview · no CDP</small>
+            <small>Groups + preview</small>
           </span>
         </label>
       </div>
     </section>
 
-    <!-- MORE: guidance + advanced (stays in sidebar — no full-page hop) -->
+    <!-- AGENTS: detection status + short prompt -->
     <section class="panel" data-panel="more" role="tabpanel" hidden>
       <div class="card">
         <div class="card-head">
-          <h2>Use with agents</h2>
-          <span class="badge soft" id="useBadge">how-to</span>
+          <h2>Status</h2>
+          <span class="badge soft" id="useBadge">live</span>
         </div>
-        <ol class="howto" id="howtoSteps">
-          <li><strong>Connect</strong> — API key verified (Home shows Executor green).</li>
-          <li><strong>Optional automation</strong> — companion + MCP URL if agents should drive Chrome.</li>
-          <li><strong>In Claude / Codex / T3</strong> — enable the <code>executor</code> MCP (or tools.chrome) for that session.</li>
-          <li><strong>Prompt</strong> — tell the agent to use browser tools on your desktop connection.</li>
-        </ol>
-        <label class="field">
-          Copy-paste agent prompt
-          <textarea id="agentPrompt" rows="4" readonly class="prompt-box"></textarea>
-        </label>
-        <div class="actions">
-          <button type="button" class="primary" id="btnCopyAgentPrompt">Copy prompt</button>
-          <button type="button" class="ghost" id="btnGoConnect">Open Connect</button>
-        </div>
-        <p class="hint" id="nextHint">After Connect succeeds, this tab explains the agent path.</p>
-      </div>
-
-      <div class="card" id="advancedCard">
-        <h2>Advanced</h2>
-        <p class="hint tight">Companion URLs and tab group name (saved here — not a separate page).</p>
-        <label class="field">
-          Companion health URL
-          <input id="healthUrl" type="url" placeholder="http://127.0.0.1:9230/healthz" autocomplete="off" />
-        </label>
-        <label class="field">
-          Companion MCP URL
-          <input id="mcpUrl" type="url" placeholder="http://127.0.0.1:9230/mcp" autocomplete="off" />
-        </label>
-        <label class="field">
-          Tab group title
-          <input id="groupTitle" type="text" placeholder="Executor" autocomplete="off" />
-        </label>
-        <div class="actions">
-          <button type="button" class="primary sm" id="btnSaveAdvanced">Save advanced</button>
-        </div>
-        <p class="hint" id="advancedHint" role="status"></p>
+        <ul class="matrix" id="agentMatrix" aria-live="polite"></ul>
+        <p class="hint tight" id="nextHint"></p>
       </div>
 
       <div class="card">
-        <h2>About</h2>
-        <p class="hint">
-          Side panel for Executor. Default: HTTPS + API key over Tailscale. Optional automation
-          lets remote agents control this Chrome via local MCP.
-        </p>
+        <div class="card-head">
+          <h2>Agent prompt</h2>
+          <button type="button" class="link" id="btnCopyAgentPrompt">Copy</button>
+        </div>
+        <textarea id="agentPrompt" rows="5" readonly class="prompt-box"></textarea>
+        <div class="actions">
+          <button type="button" class="ghost sm" id="btnGoConnect">Connect</button>
+        </div>
       </div>
+
       <footer class="inline-foot">
-        <span id="versionLabel">v0.3.1</span>
+        <span id="versionLabel">v0.4.0</span>
       </footer>
     </section>
 
