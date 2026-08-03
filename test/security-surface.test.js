@@ -50,3 +50,12 @@ test("browser use history supports individual removal and active indicators", as
   assert.match(background, /\[ACTIVE\]/);
   assert.match(reverseBridge, /browserActivityEntry\(job, result, startedAt\)/);
 });
+
+test("reverse sessions advertise the active access scope", async () => {
+  const reverseBridge = await readFile(
+    new URL("../extension/lib/reverse-bridge.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(reverseBridge, /accessAdvertisement\(\)/);
+  assert.match(reverseBridge, /capabilities:\s*\{[^}]*BROWSER_TOOLS_META[^}]*access/s);
+});

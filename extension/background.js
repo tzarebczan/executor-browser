@@ -389,6 +389,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case "saveSettings": {
         const patch = { ...msg.settings };
+        const accessChanged = ["accessMode", "allowedHosts", "advancedMode", "sessionMinutes"].some(
+          (key) => Object.hasOwn(patch, key),
+        );
         if (patch.executorApiKey === "••••••••") delete patch.executorApiKey;
         // Drop legacy keys if UI ever sends them
         delete patch.companionHealthUrl;
@@ -399,6 +402,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         delete patch.driveMode;
         delete patch.tailscaleHint;
         const settings = await setSettings(patch);
+        if (accessChanged && getReverseStatus().running) {
+          await stopReverseBridge();
+          startBridge().catch(() => {});
+        }
         sendResponse({
           ok: true,
           settings: {

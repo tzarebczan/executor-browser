@@ -15,6 +15,7 @@
 
 import { runBrowserTool, BROWSER_TOOLS_META } from "./browser-tools.js";
 import { browserActivityEntry, displayActor } from "./activity.js";
+import { accessAdvertisement } from "./access-policy.js";
 
 let running = false;
 let sessionId = null;
@@ -100,7 +101,7 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
         kind: "chrome-extension",
         transport: "reverse-longpoll",
         client: { name: "executor-browser", version: "0.10.0" },
-        capabilities: BROWSER_TOOLS_META,
+        capabilities: { ...BROWSER_TOOLS_META, access: await accessAdvertisement() },
         connection: { integration: "chrome", name: "desktop", owner: "user" },
       }),
     });
