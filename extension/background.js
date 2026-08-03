@@ -389,8 +389,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case "saveSettings": {
         const patch = { ...msg.settings };
+        const current = await getSettings();
         const accessChanged = ["accessMode", "allowedHosts", "advancedMode", "sessionMinutes"].some(
-          (key) => Object.hasOwn(patch, key),
+          (key) =>
+            Object.hasOwn(patch, key) && JSON.stringify(patch[key]) !== JSON.stringify(current[key]),
         );
         if (patch.executorApiKey === "••••••••") delete patch.executorApiKey;
         // Drop legacy keys if UI ever sends them

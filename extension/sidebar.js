@@ -12,6 +12,8 @@ let lastExecutorProbe = null;
 let authOk = false;
 let authChecking = false;
 let bootDone = false;
+let controlSaveTimer = null;
+let controlSaveInFlight = Promise.resolve();
 
 function toast(msg, kind = "ok") {
   const el = document.createElement("div");
@@ -257,10 +259,7 @@ function renderConnectState(f) {
   if (connectActions) connectActions.hidden = fullyOk && !form?.dataset.forceEdit;
   if ($("btnConnect")) $("btnConnect").hidden = fullyOk && !form?.dataset.forceEdit;
 
-  // Tab title + green dot
-  if ($("connectTabLabel")) {
-    $("connectTabLabel").textContent = fullyOk ? "Connected" : "Connect";
-  }
+  // The stable Control label describes the page; the dot carries connection state.
   if (tabDot) {
     if (fullyOk) {
       tabDot.hidden = false;
@@ -977,21 +976,73 @@ function controlSettingsFromForm() {
   };
 }
 
-async function saveControlSettings() {
-  return chrome.runtime.sendMessage({
-    type: "saveSettings",
-    settings: controlSettingsFromForm(),
-  });
+function sameStringArray(left, right) {
+  return JSON.stringify(left || []) === JSON.stringify(right || []);
 }
 
-$("btnSaveAdvanced")?.addEventListener("click", async () => {
-  await saveControlSettings();
-  if ($("advancedHint")) $("advancedHint").textContent = "Saved";
-  toast("Saved");
-  await refresh();
-});
+function controlSettingsPatch() {
+  const next = controlSettingsFromForm();
+  const current = lastStatus?.settings || {};
+  const patch = {};
+  if (next.groupTitle !== (current.groupTitle || "Executor")) patch.groupTitle = next.groupTitle;
+  if (next.accessMode !== (current.accessMode === "full" ? "full" : "limited")) {
+    patch.accessMode = next.accessMode;
+  }
+  if (!sameStringArray(next.allowedHosts, current.allowedHosts)) patch.allowedHosts = next.allowedHosts;
+  if (next.advancedMode !== Boolean(current.advancedMode)) patch.advancedMode = next.advancedMode;
+  if (next.sessionMinutes !== (Number(current.sessionMinutes) || 30)) {
+    patch.sessionMinutes = next.sessionMinutes;
+  }
+  return patch;
+}
+
+async function saveControlSettings() {
+  const settings = controlSettingsPatch();
+  if (Object.keys(settings).length === 0) return { ok: true, unchanged: true };
+  const result = await chrome.runtime.sendMessage({
+    type: "saveSettings",
+    settings,
+  });
+  if (result?.ok && lastStatus?.settings) {
+    lastStatus.settings = { ...lastStatus.settings, ...settings };
+  }
+  return result;
+}
+
+function queueControlSettingsSave({ immediate = false } = {}) {
+  if (controlSaveTimer) clearTimeout(controlSaveTimer);
+  const run = () => {
+    controlSaveTimer = null;
+    if ($("advancedHint")) $("advancedHint").textContent = "Saving...";
+    controlSaveInFlight = controlSaveInFlight
+      .then(() => saveControlSettings())
+      .then((result) => {
+        if (!result?.ok) throw new Error(result?.error || "Save failed");
+        if ($("advancedHint")) $("advancedHint").textContent = "Saved";
+      })
+      .catch((error) => {
+        if ($("advancedHint")) $("advancedHint").textContent = "Could not save";
+        toast(error?.message || "Could not save settings", "bad");
+      });
+  };
+  if (immediate) run();
+  else controlSaveTimer = setTimeout(run, 450);
+}
+
+for (const id of ["accessLimited", "accessFull", "advancedMode", "sessionMinutes"]) {
+  $(id)?.addEventListener("change", () => queueControlSettingsSave({ immediate: true }));
+}
+for (const id of ["groupTitle", "allowedHosts"]) {
+  $(id)?.addEventListener("input", () => queueControlSettingsSave());
+  $(id)?.addEventListener("blur", () => queueControlSettingsSave({ immediate: true }));
+}
 
 $("btnStartSession")?.addEventListener("click", async () => {
+  if (controlSaveTimer) {
+    clearTimeout(controlSaveTimer);
+    controlSaveTimer = null;
+  }
+  await controlSaveInFlight;
   await saveControlSettings();
   const result = await chrome.runtime.sendMessage({ type: "startControlSession" });
   toast(result?.ok ? "Control session started" : result?.error || "Could not start session", result?.ok ? "ok" : "bad");

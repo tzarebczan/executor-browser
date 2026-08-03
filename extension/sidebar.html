@@ -33,7 +33,7 @@
       <nav class="tabs" role="tablist" aria-label="Panel">
         <button type="button" class="tab active" data-tab="home" role="tab" aria-selected="true">Home</button>
         <button type="button" class="tab" data-tab="connect" role="tab" aria-selected="false" id="tabConnect">
-          <span id="connectTabLabel">Connect</span>
+          <span id="connectTabLabel">Control</span>
           <span class="tab-dot" id="connectTabDot" hidden></span>
         </button>
         <button type="button" class="tab" data-tab="tabs" role="tab" aria-selected="false">
@@ -54,13 +54,13 @@
           </div>
           <div class="home-section-body" id="homeStatusBody">
             <div class="spine" id="statusStrip" aria-label="Link status">
-              <button type="button" class="signal" data-goto="connect" id="statExecutor" title="Open Connect">
+              <button type="button" class="signal" data-goto="connect" id="statExecutor" title="Open Control">
                 <span class="led" id="executorLed" aria-hidden="true"></span>
                 <span class="sig-k">Uplink</span>
                 <span class="sig-v mono" id="executorStat">…</span>
                 <span class="sig-d">Executor over Tailscale</span>
               </button>
-              <button type="button" class="signal" data-goto="connect" id="statCompanion" title="Open Connect">
+              <button type="button" class="signal" data-goto="connect" id="statCompanion" title="Open Control">
                 <span class="led" id="companionLed" aria-hidden="true"></span>
                 <span class="sig-k">Bridge</span>
                 <span class="sig-v mono" id="companionStat">—</span>
@@ -260,9 +260,6 @@
             <span id="sessionStatus">No active control session</span>
             <button type="button" class="ghost sm" id="btnStartSession">Start</button>
             <button type="button" class="ghost sm" id="btnEndSession" hidden>End</button>
-          </div>
-          <div class="actions">
-            <button type="button" class="ghost sm" id="btnSaveAdvanced">Save</button>
           </div>
           <p class="hint" id="advancedHint" role="status"></p>
         </div>

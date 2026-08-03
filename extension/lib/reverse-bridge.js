@@ -104,7 +104,7 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
       body: JSON.stringify({
         kind: "chrome-extension",
         transport: "reverse-longpoll",
-        client: { name: "executor-browser", version: "0.10.0" },
+        client: { name: "executor-browser", version: "0.10.1" },
         capabilities: { ...BROWSER_TOOLS_META, access: await accessAdvertisement() },
         connection: { integration: "chrome", name: "desktop", owner: "user" },
       }),

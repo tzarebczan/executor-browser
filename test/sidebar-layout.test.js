@@ -32,3 +32,16 @@ test("Uplink, Bridge, and Tabs use the compact horizontal status grid", async ()
   assert.match(css, /\.spine\s*\{[\s\S]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(css, /\.sig-d\s*\{\s*display:\s*none/);
 });
+
+test("Control settings autosave without a redundant Save button", async () => {
+  const [html, script] = await Promise.all([
+    readFile(new URL("extension/sidebar.html", root), "utf8"),
+    readFile(new URL("extension/sidebar.js", root), "utf8"),
+  ]);
+
+  assert.match(html, /id="connectTabLabel">Control</);
+  assert.doesNotMatch(html, /id="btnSaveAdvanced"/);
+  assert.match(script, /queueControlSettingsSave/);
+  assert.match(script, /\["groupTitle", "allowedHosts"\]/);
+  assert.doesNotMatch(script, /fullyOk \? "Connected" : "Connect"/);
+});
