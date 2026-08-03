@@ -23,6 +23,7 @@ let lastError = null;
 let lastOkAt = 0;
 let mode = "idle"; // idle | reverse | polling | unsupported | error
 let abort = null;
+let runGeneration = 0;
 let activeUse = null;
 let lastUse = null;
 
@@ -56,6 +57,7 @@ export function getReverseStatus() {
 }
 
 export async function stopReverseBridge() {
+  runGeneration += 1;
   running = false;
   activeUse = null;
   if (abort) {
@@ -77,8 +79,10 @@ export async function stopReverseBridge() {
  */
 export async function startReverseBridge(getSettings, pushActivity, onUseState) {
   if (running) return getReverseStatus();
+  const generation = ++runGeneration;
   running = true;
-  abort = new AbortController();
+  const controller = new AbortController();
+  abort = controller;
   mode = "polling";
   lastError = null;
 
@@ -96,7 +100,7 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
     const r = await fetch(`${base}/api/browser-bridge/session`, {
       method: "POST",
       headers: await authHeaders(settings),
-      signal: abort.signal,
+      signal: controller.signal,
       body: JSON.stringify({
         kind: "chrome-extension",
         transport: "reverse-longpoll",
@@ -142,7 +146,7 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
       message: `Reverse bridge session ${String(sessionId).slice(0, 8)}…`,
     });
   } catch (e) {
-    if (abort?.signal.aborted) return getReverseStatus();
+    if (controller.signal.aborted || generation !== runGeneration) return getReverseStatus();
     mode = "error";
     running = false;
     lastError = String(e?.message || e);
@@ -154,23 +158,23 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
 
   // 2) Poll loop (only if we have a server session)
   if (sessionId && mode === "reverse") {
-    pollLoop(getSettings, pushActivity, onUseState).catch(() => {});
+    pollLoop(getSettings, pushActivity, onUseState, generation, sessionId, controller).catch(() => {});
   }
 
   return getReverseStatus();
 }
 
-async function pollLoop(getSettings, pushActivity, onUseState) {
-  while (running && sessionId) {
+async function pollLoop(getSettings, pushActivity, onUseState, generation, pollSessionId, controller) {
+  while (running && generation === runGeneration) {
     try {
       const settings = await getSettings();
       const base = baseUrl(settings);
       const r = await fetch(
-        `${base}/api/browser-bridge/session/${encodeURIComponent(sessionId)}/jobs?waitMs=25000`,
+        `${base}/api/browser-bridge/session/${encodeURIComponent(pollSessionId)}/jobs?waitMs=25000`,
         {
           method: "GET",
           headers: await authHeaders(settings),
-          signal: abort?.signal,
+          signal: controller.signal,
         },
       );
 
@@ -213,7 +217,7 @@ async function pollLoop(getSettings, pushActivity, onUseState) {
         }
         let deliveryError = null;
         try {
-          await postResult(settings, id, result);
+          await postResult(settings, id, result, pollSessionId);
         } catch (error) {
           deliveryError = error;
         }
@@ -228,23 +232,25 @@ async function pollLoop(getSettings, pushActivity, onUseState) {
         if (deliveryError) throw deliveryError;
       }
     } catch (e) {
-      if (abort?.signal.aborted || !running) break;
+      if (controller.signal.aborted || !running || generation !== runGeneration) break;
       lastError = String(e?.message || e);
       await sleep(3000);
     }
   }
-  running = false;
-  if (mode === "reverse") mode = "idle";
+  if (generation === runGeneration) {
+    running = false;
+    if (mode === "reverse") mode = "idle";
+  }
 }
 
-async function postResult(settings, jobId, result) {
-  if (!sessionId || !jobId) return;
+async function postResult(settings, jobId, result, resultSessionId = sessionId) {
+  if (!resultSessionId || !jobId) return;
   const base = baseUrl(settings);
   const payload = { ...result };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await fetch(
-        `${base}/api/browser-bridge/session/${encodeURIComponent(sessionId)}/result`,
+        `${base}/api/browser-bridge/session/${encodeURIComponent(resultSessionId)}/result`,
         {
           method: "POST",
           headers: await authHeaders(settings),

@@ -49,6 +49,8 @@ test("browser use history supports individual removal and active indicators", as
   assert.match(background, /setBadgeText\(\{ text: "USE" \}\)/);
   assert.match(background, /\[ACTIVE\]/);
   assert.match(reverseBridge, /browserActivityEntry\(job, result, startedAt\)/);
+  assert.match(reverseBridge, /generation !== runGeneration/);
+  assert.match(reverseBridge, /resultSessionId/);
 });
 
 test("reverse sessions advertise the active access scope", async () => {
