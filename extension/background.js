@@ -17,6 +17,13 @@ import {
   ensureAgentTabGroup,
   listAgentTabs,
 } from "./lib/browser-tools.js";
+import {
+  ACCESS_DEFAULTS,
+  accessAdvertisement,
+  endControlSession,
+  getAccessState,
+  startControlSession,
+} from "./lib/access-policy.js";
 
 const DEFAULTS = {
   executorUrl: "",
@@ -26,6 +33,7 @@ const DEFAULTS = {
   groupTitle: "Executor",
   groupColor: "blue",
   activity: [],
+  ...ACCESS_DEFAULTS,
 };
 
 async function getSettings() {
@@ -43,11 +51,70 @@ async function setSettings(partial) {
 async function pushActivity(entry) {
   const s = await getSettings();
   const activity = [
-    { t: Date.now(), ...entry },
+    {
+      id: entry.id || `event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      t: Date.now(),
+      ...entry,
+    },
     ...(s.activity || []),
-  ].slice(0, 40);
+  ].slice(0, 80);
   await setSettings({ activity });
   return activity;
+}
+
+let indicatorRevision = 0;
+let indicatorTimer = null;
+
+async function updateOwnedGroup(active) {
+  const [settings, tabs] = await Promise.all([getSettings(), listAgentTabs()]);
+  const groupId = tabs.find((tab) => Number.isInteger(tab.groupId))?.groupId;
+  if (!Number.isInteger(groupId)) return;
+  try {
+    await chrome.tabGroups.update(groupId, {
+      title: active ? `${settings.groupTitle || "Executor"} [ACTIVE]` : settings.groupTitle || "Executor",
+      color: active ? "yellow" : settings.groupColor || "blue",
+      collapsed: false,
+    });
+  } catch {
+    /* Group may disappear while an operation is finishing. */
+  }
+}
+
+async function setReadyIndicators() {
+  const ready = getReverseStatus().mode === "reverse";
+  await chrome.action.setBadgeText({ text: ready ? "ON" : "!" });
+  await chrome.action.setBadgeBackgroundColor({ color: ready ? "#34a853" : "#ea4335" });
+  await chrome.action.setTitle({
+    title: ready ? "Executor Browser - ready for agents" : "Executor Browser - not connected",
+  });
+  await updateOwnedGroup(false);
+}
+
+async function setUseIndicators(state) {
+  if (state.active) {
+    indicatorRevision += 1;
+    if (indicatorTimer) clearTimeout(indicatorTimer);
+    await chrome.action.setBadgeText({ text: "USE" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#f0a63e" });
+    await chrome.action.setTitle({
+      title: `Executor Browser - ${state.actor || "agent"} using ${state.tool || "browser"}`,
+    });
+    await updateOwnedGroup(true);
+    return;
+  }
+
+  const revision = ++indicatorRevision;
+  if (indicatorTimer) clearTimeout(indicatorTimer);
+  indicatorTimer = setTimeout(() => {
+    if (indicatorRevision === revision) setReadyIndicators().catch(() => {});
+  }, 1800);
+}
+
+function startBridge() {
+  return startReverseBridge(getSettings, pushActivity, setUseIndicators).then((status) => {
+    setReadyIndicators().catch(() => {});
+    return status;
+  });
 }
 
 async function openAgentTab(url) {
@@ -248,7 +315,7 @@ async function verifyExecutorAuth() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.8.0" },
+          clientInfo: { name: "executor-browser", version: "0.9.1" },
         },
       }),
     });
@@ -267,7 +334,7 @@ async function verifyExecutorAuth() {
     }
     await setSettings({ registeredAt: Date.now() });
     await pushActivity({ kind: "executor", message: "API key verified with Executor" });
-    startReverseBridge(getSettings, pushActivity).catch(() => {});
+    startBridge().catch(() => {});
     return { ok: true, status: r.status, snippet: text.slice(0, 120) };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
@@ -283,11 +350,11 @@ chrome.alarms.onAlarm.addListener(async (a) => {
   if (s.executorApiKey && s.executorUrl) {
     const st = getReverseStatus();
     if (!st.running || st.mode === "idle" || st.mode === "error" || st.mode === "unsupported") {
-      startReverseBridge(getSettings, pushActivity).catch(() => {});
+      startBridge().catch(() => {});
     }
   }
   const ok = Boolean(s.executorApiKey && s.executorUrl) && getReverseStatus().mode === "reverse";
-  await chrome.action.setBadgeText({ text: ok ? "" : "!" });
+  await chrome.action.setBadgeText({ text: ok ? "ON" : "!" });
   await chrome.action.setBadgeBackgroundColor({ color: ok ? "#34a853" : "#ea4335" });
 });
 
@@ -313,7 +380,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           reverse,
           driveReady,
           driveMode: "reverse",
-          browserTools: BROWSER_TOOLS_META,
+          browserTools: { ...BROWSER_TOOLS_META, access: await accessAdvertisement() },
+          controlSession: (await getAccessState()).session,
           tabs,
           activity: settings.activity || [],
         });
@@ -359,11 +427,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           executorApiKey: "",
           registeredAt: 0,
         });
+        await setReadyIndicators();
         sendResponse({ ok: true, hasApiKey: Boolean(settings.executorApiKey) });
         break;
       }
       case "startReverseBridge": {
-        sendResponse(await startReverseBridge(getSettings, pushActivity));
+        sendResponse(await startBridge());
         break;
       }
       case "stopReverseBridge": {
@@ -405,6 +474,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await setSettings({ activity: [] });
         sendResponse({ ok: true });
         break;
+      case "startControlSession": {
+        const session = await startControlSession("User");
+        await pushActivity({ kind: "session", message: `${session.mode === "full" ? "All Chrome tabs" : "Executor tabs"} access window started` });
+        sendResponse({ ok: true, session });
+        break;
+      }
+      case "endControlSession":
+        await endControlSession();
+        await pushActivity({ kind: "session", message: "Control session ended" });
+        sendResponse({ ok: true });
+        break;
+      case "removeActivity": {
+        const settings = await getSettings();
+        const activity = (settings.activity || []).filter((entry) => entry.id !== msg.id);
+        await setSettings({ activity });
+        sendResponse({ ok: true, activity });
+        break;
+      }
       default:
         sendResponse({ ok: false, error: "unknown message type" });
     }
@@ -415,6 +502,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 (async () => {
   const s = await getSettings();
   if (s.executorApiKey && s.executorUrl) {
-    startReverseBridge(getSettings, pushActivity).catch(() => {});
+    startBridge().catch(() => {});
+  } else {
+    setReadyIndicators().catch(() => {});
   }
 })();

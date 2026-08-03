@@ -44,31 +44,44 @@
 
       <!-- HOME -->
       <section class="panel active" data-panel="home" role="tabpanel">
-        <!-- Uplink spine: current flows Executor → bridge → tabs -->
-        <div class="spine" id="statusStrip" aria-label="Link status">
-          <button type="button" class="signal" data-goto="connect" id="statExecutor" title="Open Connect">
-            <span class="led" id="executorLed" aria-hidden="true"></span>
-            <span class="sig-k">Uplink</span>
-            <span class="sig-v mono" id="executorStat">…</span>
-            <span class="sig-d">Executor over Tailscale</span>
-          </button>
-          <button type="button" class="signal" data-goto="connect" id="statCompanion" title="Open Connect">
-            <span class="led" id="companionLed" aria-hidden="true"></span>
-            <span class="sig-k">Bridge</span>
-            <span class="sig-v mono" id="companionStat">—</span>
-            <span class="sig-d">Reverse drive channel for agents</span>
-          </button>
-          <button type="button" class="signal" data-goto="tabs" id="statTabs" title="Open Tabs">
-            <span class="led" id="tabsLed" aria-hidden="true"></span>
-            <span class="sig-k">Tabs</span>
-            <span class="sig-v mono" id="tabStat">0</span>
-            <span class="sig-d">Agent workspace in this Chrome</span>
-          </button>
-        </div>
+        <section class="home-section status-section" data-collapsible-section="status">
+          <div class="home-section-head">
+            <button type="button" class="section-toggle" data-collapse-toggle aria-expanded="true" aria-controls="homeStatusBody">
+              <span class="section-chevron" aria-hidden="true"></span>
+              <span>Status</span>
+            </button>
+            <span class="section-meta mono" id="statusSummary">Checking</span>
+          </div>
+          <div class="home-section-body" id="homeStatusBody">
+            <div class="spine" id="statusStrip" aria-label="Link status">
+              <button type="button" class="signal" data-goto="connect" id="statExecutor" title="Open Connect">
+                <span class="led" id="executorLed" aria-hidden="true"></span>
+                <span class="sig-k">Uplink</span>
+                <span class="sig-v mono" id="executorStat">…</span>
+                <span class="sig-d">Executor over Tailscale</span>
+              </button>
+              <button type="button" class="signal" data-goto="connect" id="statCompanion" title="Open Connect">
+                <span class="led" id="companionLed" aria-hidden="true"></span>
+                <span class="sig-k">Bridge</span>
+                <span class="sig-v mono" id="companionStat">—</span>
+                <span class="sig-d">Reverse drive channel for agents</span>
+              </button>
+              <button type="button" class="signal" data-goto="tabs" id="statTabs" title="Open Tabs">
+                <span class="led" id="tabsLed" aria-hidden="true"></span>
+                <span class="sig-k">Tabs</span>
+                <span class="sig-v mono" id="tabStat">0</span>
+                <span class="sig-d">Agent workspace in this Chrome</span>
+              </button>
+            </div>
+          </div>
+        </section>
 
-        <div class="monitor">
-          <div class="monitor-head">
-            <span class="cap-label">Local preview</span>
+        <section class="home-section monitor" data-collapsible-section="preview" data-default-collapsed="true">
+          <div class="home-section-head monitor-head">
+            <button type="button" class="section-toggle" data-collapse-toggle aria-expanded="true" aria-controls="homePreviewBody">
+              <span class="section-chevron" aria-hidden="true"></span>
+              <span>Local preview</span>
+            </button>
             <span class="urlbar mono" id="previewUrl">No capture yet</span>
             <button
               type="button"
@@ -79,32 +92,50 @@
               Capture
             </button>
           </div>
-          <div class="preview-stage" id="previewStage">
-            <div class="preview-empty" id="previewEmpty">
-              <p id="previewEmptyTitle">Nothing captured</p>
-              <span id="previewEmptyHint"
-                >A JPEG for your eyes only — never sent to Executor. Open an agent tab, then Capture.</span
-              >
-              <button type="button" class="primary sm" id="btnOpenTabHome">Open agent tab</button>
+          <div class="home-section-body" id="homePreviewBody">
+            <div class="preview-stage" id="previewStage">
+              <div class="preview-empty" id="previewEmpty">
+                <p id="previewEmptyTitle">Nothing captured</p>
+                <span id="previewEmptyHint"
+                  >A JPEG for your eyes only — never sent to Executor. Open an agent tab, then Capture.</span
+                >
+                <button type="button" class="primary sm" id="btnOpenTabHome">Open agent tab</button>
+              </div>
+              <img id="previewImg" alt="Local preview of the agent tab" hidden />
             </div>
-            <img id="previewImg" alt="Local preview of the agent tab" hidden />
+            <div class="monitor-foot">
+              <span id="previewTitle">—</span>
+              <span class="meta-right" id="previewError" hidden></span>
+              <span class="preview-local" id="previewLocalTag">Stays local</span>
+            </div>
           </div>
-          <div class="monitor-foot">
-            <span id="previewTitle">—</span>
-            <span class="meta-right" id="previewError" hidden></span>
-            <span class="preview-local" id="previewLocalTag">Stays local</span>
-          </div>
-        </div>
+        </section>
 
-        <div class="module">
-          <div class="module-head">
-            <h2>Activity</h2>
-            <button type="button" class="link" id="btnClearActivity">Clear</button>
+        <section class="home-section module activity-module" data-collapsible-section="activity">
+          <div class="home-section-head module-head">
+            <button type="button" class="section-toggle" data-collapse-toggle aria-expanded="true" aria-controls="homeActivityBody">
+              <span class="section-chevron" aria-hidden="true"></span>
+              <span>Browser use</span>
+            </button>
+            <div class="activity-head-actions">
+              <span class="badge soft" id="useStateBadge">Idle</span>
+              <button type="button" class="link" id="btnClearActivity">Clear all</button>
+            </div>
           </div>
-          <ul class="activity" id="activityList">
-            <li class="empty">Nothing yet</li>
-          </ul>
-        </div>
+          <div class="home-section-body activity-section-body" id="homeActivityBody">
+            <div class="use-summary" id="useSummary" data-state="idle" aria-live="polite">
+              <span class="use-led" aria-hidden="true"></span>
+              <div>
+                <strong id="useSummaryTitle">No browser use recorded</strong>
+                <span id="useSummaryDetail">Agent operations will appear here.</span>
+              </div>
+            </div>
+            <ul class="activity" id="activityList">
+              <li class="empty">Nothing yet</li>
+            </ul>
+            <p class="activity-privacy">Typed text, page contents, and screenshot data are not retained.</p>
+          </div>
+        </section>
       </section>
 
       <!-- CONNECT -->
@@ -198,6 +229,38 @@
             Tab group title
             <input id="groupTitle" type="text" placeholder="Executor" autocomplete="off" />
           </label>
+          <fieldset class="field access-field">
+            <legend>Access</legend>
+            <div class="segment" role="radiogroup" aria-label="Browser access mode">
+              <label title="Only tabs in the Executor group"><input id="accessLimited" type="radio" name="accessMode" value="limited" /> Executor tabs</label>
+              <label title="Any normal tab in this Chrome profile during an access window"><input id="accessFull" type="radio" name="accessMode" value="full" /> All Chrome tabs</label>
+            </div>
+          </fieldset>
+          <label class="field" id="allowedHostsField">
+            Site allowlist (optional)
+            <input id="allowedHosts" type="text" placeholder="Any site" autocomplete="off" />
+          </label>
+          <div class="settings-row">
+            <label class="check-field">
+              <input id="advancedMode" type="checkbox" />
+              <span>Developer tools (CDP)</span>
+            </label>
+            <label class="compact-field">
+              Access window
+              <select id="sessionMinutes">
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">1 hour</option>
+                <option value="240">4 hours</option>
+              </select>
+            </label>
+          </div>
+          <div class="session-strip" id="sessionStrip" data-state="idle">
+            <span class="session-dot" aria-hidden="true"></span>
+            <span id="sessionStatus">No active control session</span>
+            <button type="button" class="ghost sm" id="btnStartSession">Start</button>
+            <button type="button" class="ghost sm" id="btnEndSession" hidden>End</button>
+          </div>
           <div class="actions">
             <button type="button" class="ghost sm" id="btnSaveAdvanced">Save</button>
           </div>
@@ -266,7 +329,7 @@
         </div>
 
         <footer class="inline-foot">
-          <span id="versionLabel">v0.8.0 · reverse only</span>
+          <span id="versionLabel">v0.10.0 · scoped browser control</span>
         </footer>
       </section>
     </div>

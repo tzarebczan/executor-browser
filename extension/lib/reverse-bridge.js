@@ -14,6 +14,7 @@
  */
 
 import { runBrowserTool, BROWSER_TOOLS_META } from "./browser-tools.js";
+import { browserActivityEntry, displayActor } from "./activity.js";
 
 let running = false;
 let sessionId = null;
@@ -21,6 +22,8 @@ let lastError = null;
 let lastOkAt = 0;
 let mode = "idle"; // idle | reverse | polling | unsupported | error
 let abort = null;
+let activeUse = null;
+let lastUse = null;
 
 function baseUrl(settings) {
   return (settings.executorUrl || "").replace(/\/$/, "");
@@ -46,11 +49,14 @@ export function getReverseStatus() {
     lastOkAt,
     tools: BROWSER_TOOLS_META.tools,
     transport: "extension-reverse",
+    activeUse,
+    lastUse,
   };
 }
 
 export async function stopReverseBridge() {
   running = false;
+  activeUse = null;
   if (abort) {
     try {
       abort.abort();
@@ -68,7 +74,7 @@ export async function stopReverseBridge() {
  * @param {() => Promise<object>} getSettings
  * @param {(entry: object) => Promise<void>} pushActivity
  */
-export async function startReverseBridge(getSettings, pushActivity) {
+export async function startReverseBridge(getSettings, pushActivity, onUseState) {
   if (running) return getReverseStatus();
   running = true;
   abort = new AbortController();
@@ -93,7 +99,7 @@ export async function startReverseBridge(getSettings, pushActivity) {
       body: JSON.stringify({
         kind: "chrome-extension",
         transport: "reverse-longpoll",
-        client: { name: "executor-browser", version: "0.8.0" },
+        client: { name: "executor-browser", version: "0.10.0" },
         capabilities: BROWSER_TOOLS_META,
         connection: { integration: "chrome", name: "desktop", owner: "user" },
       }),
@@ -147,13 +153,13 @@ export async function startReverseBridge(getSettings, pushActivity) {
 
   // 2) Poll loop (only if we have a server session)
   if (sessionId && mode === "reverse") {
-    pollLoop(getSettings, pushActivity).catch(() => {});
+    pollLoop(getSettings, pushActivity, onUseState).catch(() => {});
   }
 
   return getReverseStatus();
 }
 
-async function pollLoop(getSettings, pushActivity) {
+async function pollLoop(getSettings, pushActivity, onUseState) {
   while (running && sessionId) {
     try {
       const settings = await getSettings();
@@ -191,17 +197,34 @@ async function pollLoop(getSettings, pushActivity) {
         const id = job.id || job.jobId;
         const tool = job.tool || job.name || job.method;
         const args = job.args || job.arguments || job.params || {};
+        const startedAt = Date.now();
+        activeUse = {
+          startedAt,
+          actor: displayActor(job.caller),
+          tool,
+        };
+        await onUseState?.({ active: true, ...activeUse });
         let result;
         try {
           result = await runBrowserTool(tool, args);
         } catch (e) {
           result = { ok: false, error: String(e?.message || e) };
         }
-        await postResult(settings, id, result);
-        await pushActivity?.({
-          kind: "bridge",
-          message: `${tool} → ${result.ok ? "ok" : "err"}`,
-        });
+        let deliveryError = null;
+        try {
+          await postResult(settings, id, result);
+        } catch (error) {
+          deliveryError = error;
+        }
+        if (deliveryError) {
+          result = { ok: false, error: `Could not return result: ${String(deliveryError?.message || deliveryError)}` };
+        }
+        const entry = browserActivityEntry(job, result, startedAt);
+        lastUse = entry;
+        activeUse = null;
+        await pushActivity?.(entry);
+        await onUseState?.({ active: false, entry });
+        if (deliveryError) throw deliveryError;
       }
     } catch (e) {
       if (abort?.signal.aborted || !running) break;

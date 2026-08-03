@@ -49,6 +49,22 @@ function timeAgo(ts) {
   return `${Math.floor(s / 3600)}h`;
 }
 
+function durationLabel(ms) {
+  if (!Number.isFinite(ms)) return "";
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
+  return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
+}
+
+function pageLabel(target) {
+  if (target?.title) return target.title;
+  if (!target?.url) return "";
+  try {
+    return new URL(target.url).hostname || target.url;
+  } catch {
+    return target.url;
+  }
+}
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -76,6 +92,54 @@ document.querySelectorAll(".tab").forEach((t) => {
 document.querySelectorAll("[data-goto]").forEach((el) => {
   el.addEventListener("click", () => selectTab(el.dataset.goto));
 });
+
+const COLLAPSE_STATE_KEY = "executor-browser:home-sections:v1";
+
+function readCollapseState() {
+  try {
+    const value = JSON.parse(localStorage.getItem(COLLAPSE_STATE_KEY) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCollapseState(value) {
+  try {
+    localStorage.setItem(COLLAPSE_STATE_KEY, JSON.stringify(value));
+  } catch {
+    // Collapsing still works for this panel session when storage is unavailable.
+  }
+}
+
+function setSectionCollapsed(section, collapsed, { persist = true } = {}) {
+  if (!section) return;
+  const button = section.querySelector(":scope > .home-section-head [data-collapse-toggle]");
+  const label = button?.textContent?.trim() || "section";
+  section.dataset.collapsed = String(collapsed);
+  button?.setAttribute("aria-expanded", String(!collapsed));
+  if (button) button.title = `${collapsed ? "Expand" : "Collapse"} ${label}`;
+
+  if (persist) {
+    const state = readCollapseState();
+    state[section.dataset.collapsibleSection] = collapsed;
+    writeCollapseState(state);
+  }
+}
+
+function setupCollapsibleSections() {
+  const state = readCollapseState();
+  document.querySelectorAll("[data-collapsible-section]").forEach((section) => {
+    const key = section.dataset.collapsibleSection;
+    const collapsed = key in state ? Boolean(state[key]) : section.dataset.defaultCollapsed === "true";
+    setSectionCollapsed(section, collapsed, { persist: false });
+    section.querySelector(":scope > .home-section-head [data-collapse-toggle]")?.addEventListener("click", () => {
+      setSectionCollapsed(section, section.dataset.collapsed !== "true");
+    });
+  });
+}
+
+setupCollapsibleSections();
 
 /**
  * @param {string} state ok | bad | warn | run | off | skip
@@ -386,7 +450,9 @@ function renderSetup(status) {
   }
 
   // Header
-  if (authChecking) $("headerStatus").textContent = "Connecting…";
+  if (status?.reverse?.activeUse) {
+    $("headerStatus").textContent = `${status.reverse.activeUse.actor || "Agent"} using browser`;
+  } else if (authChecking) $("headerStatus").textContent = "Connecting…";
   else if (!f.executorReach) $("headerStatus").textContent = "Executor offline";
   else if (!f.hasKey) $("headerStatus").textContent = "Needs API key";
   else if (!f.connected) $("headerStatus").textContent = "Auth failed";
@@ -422,6 +488,10 @@ async function refresh() {
   const n = tabs?.length || 0;
   setStat($("tabStat"), String(n), n > 0 ? "ok" : "warn");
   if ($("tabCount")) $("tabCount").textContent = String(n);
+  if ($("statusSummary")) {
+    const ready = [executorOk, status.driveReady || rev.mode === "reverse", n > 0].filter(Boolean).length;
+    $("statusSummary").textContent = `${ready}/3 ready`;
+  }
 
   if (document.activeElement?.id !== "executorUrl") {
     $("executorUrl").value = settings.executorUrl || "";
@@ -435,6 +505,22 @@ async function refresh() {
   if ($("groupBadge") && settings.groupTitle) {
     $("groupBadge").textContent = settings.groupTitle;
   }
+  if ($("accessLimited")) $("accessLimited").checked = settings.accessMode !== "full";
+  if ($("accessFull")) $("accessFull").checked = settings.accessMode === "full";
+  if ($("allowedHosts") && document.activeElement?.id !== "allowedHosts") {
+    $("allowedHosts").value = (settings.allowedHosts || []).join(", ");
+  }
+  if ($("advancedMode")) $("advancedMode").checked = Boolean(settings.advancedMode);
+  if ($("sessionMinutes")) $("sessionMinutes").value = String(settings.sessionMinutes || 30);
+  const session = status.controlSession;
+  if ($("sessionStrip")) $("sessionStrip").dataset.state = session ? "active" : "idle";
+  if ($("sessionStatus")) {
+    $("sessionStatus").textContent = session
+      ? `${session.mode === "full" ? "All Chrome tabs" : "Executor tabs"} until ${new Date(session.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+      : "No active control session";
+  }
+  if ($("btnStartSession")) $("btnStartSession").hidden = Boolean(session);
+  if ($("btnEndSession")) $("btnEndSession").hidden = !session;
 
   const list = $("tabList");
   if (!tabs?.length) {
@@ -459,22 +545,77 @@ async function refresh() {
     });
   }
 
+  const browserActivity = (activity || []).filter((entry) => entry.kind === "browser-use");
+  const activeUse = status.reverse?.activeUse;
+  const latestUse = browserActivity[0] || status.reverse?.lastUse;
+  const useBadge = $("useStateBadge");
+  const useSummary = $("useSummary");
+  if (activeUse) {
+    useBadge.textContent = "Active";
+    useBadge.className = "badge active-use-badge";
+    useSummary.dataset.state = "active";
+    $("useSummaryTitle").textContent = `${activeUse.actor || "Agent"} is using the browser`;
+    $("useSummaryDetail").textContent = activeUse.tool || "Browser operation in progress";
+    $("headerStatus").textContent = `${activeUse.actor || "Agent"} using browser`;
+  } else if (latestUse) {
+    useBadge.textContent = "Idle";
+    useBadge.className = "badge soft";
+    useSummary.dataset.state = latestUse.outcome === "error" ? "error" : "idle";
+    $("useSummaryTitle").textContent = `${latestUse.actor || "Agent via Executor"} last used the browser ${timeAgo(latestUse.t)} ago`;
+    $("useSummaryDetail").textContent = latestUse.summary || latestUse.message || latestUse.tool || "Browser operation";
+  } else {
+    useBadge.textContent = "Idle";
+    useBadge.className = "badge soft";
+    useSummary.dataset.state = "idle";
+    $("useSummaryTitle").textContent = "No browser use recorded";
+    $("useSummaryDetail").textContent = "Agent operations will appear here.";
+  }
+
   const act = $("activityList");
   if (!activity?.length) {
     act.innerHTML = `<li class="empty">Nothing yet</li>`;
   } else {
     act.innerHTML = activity
-      .slice(0, 10)
+      .slice(0, 40)
       .map(
-        (a) => `
-      <li>
-        <span class="dot"></span>
-        <span>${escapeHtml(a.message || a.kind || "event")}</span>
-        <span class="when">${timeAgo(a.t)}</span>
-      </li>`,
+        (a) => {
+          if (a.kind !== "browser-use") {
+            return `<li class="activity-system">
+              <span class="dot"></span>
+              <span class="activity-system-copy">${escapeHtml(a.message || a.kind || "event")}</span>
+              <span class="when" title="${escapeHtml(new Date(a.t).toLocaleString())}">${timeAgo(a.t)}</span>
+              <button type="button" class="activity-remove" data-remove-id="${escapeHtml(a.id || "")}" title="Remove event" aria-label="Remove event">x</button>
+            </li>`;
+          }
+          const page = pageLabel(a.target);
+          const meta = [a.tool, durationLabel(a.durationMs), a.outcome === "error" ? "failed" : "ok"]
+            .filter(Boolean)
+            .join(" · ");
+          return `<li class="activity-use ${a.outcome === "error" ? "is-error" : ""}">
+            <span class="activity-marker" aria-hidden="true"></span>
+            <div class="activity-body">
+              <div class="activity-topline">
+                <span class="activity-actor">${escapeHtml(a.actor || "Agent via Executor")}</span>
+                <span class="when" title="${escapeHtml(new Date(a.t).toLocaleString())}">${timeAgo(a.t)}</span>
+              </div>
+              <strong>${escapeHtml(a.summary || a.message || a.tool || "Browser operation")}</strong>
+              ${page ? `<span class="activity-page">${escapeHtml(page)}</span>` : ""}
+              <span class="activity-detail">${escapeHtml(a.error || a.detail || "")}</span>
+              <span class="activity-meta">${escapeHtml(meta)}</span>
+            </div>
+            <button type="button" class="activity-remove" data-remove-id="${escapeHtml(a.id || "")}" title="Remove event" aria-label="Remove ${escapeHtml(a.summary || "event")}">x</button>
+          </li>`;
+        },
       )
       .join("");
+    act.querySelectorAll("button[data-remove-id]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        await chrome.runtime.sendMessage({ type: "removeActivity", id: button.dataset.removeId });
+        await refresh();
+      });
+    });
   }
+  $("btnClearActivity").disabled = !activity?.length;
 
   renderSetup(status);
   renderMatrices(status);
@@ -525,6 +666,9 @@ async function capture({ focus = false, soft = false } = {}) {
       const res = await chrome.runtime.sendMessage({ type: "capturePreview", focus });
       const errEl = $("previewError");
       if (!res?.ok) {
+        if (!soft) {
+          setSectionCollapsed(document.querySelector('[data-collapsible-section="preview"]'), false);
+        }
         $("previewEmpty").hidden = false;
         $("previewImg").hidden = true;
         const msg = friendlyCaptureError(res?.error);
@@ -545,6 +689,9 @@ async function capture({ focus = false, soft = false } = {}) {
       img.src = res.dataUrl;
       $("previewUrl").textContent = res.tab?.url || "";
       $("previewTitle").textContent = res.tab?.title || "Preview";
+      if (!soft) {
+        setSectionCollapsed(document.querySelector('[data-collapsible-section="preview"]'), false);
+      }
       if (soft) lastSoftCaptureAt = Date.now();
     } finally {
       if ($("btnCapture")) $("btnCapture").disabled = false;
@@ -815,15 +962,45 @@ $("btnPingDrive")?.addEventListener("click", async () => {
   toast(r?.ok ? `Ping ok · ${r.mode || "tools"}` : r?.error || "Ping failed", r?.ok ? "ok" : "bad");
 });
 
-$("btnSaveAdvanced")?.addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({
+function controlSettingsFromForm() {
+  const accessMode = $("accessFull")?.checked ? "full" : "limited";
+  return {
+    groupTitle: $("groupTitle")?.value.trim() || "Executor",
+    accessMode,
+    allowedHosts:
+      $("allowedHosts")?.value
+        .split(/[\s,]+/)
+        .map((value) => value.trim())
+        .filter(Boolean) || [],
+    advancedMode: Boolean($("advancedMode")?.checked),
+    sessionMinutes: Number($("sessionMinutes")?.value) || 30,
+  };
+}
+
+async function saveControlSettings() {
+  return chrome.runtime.sendMessage({
     type: "saveSettings",
-    settings: {
-      groupTitle: $("groupTitle")?.value.trim() || "Executor",
-    },
+    settings: controlSettingsFromForm(),
   });
+}
+
+$("btnSaveAdvanced")?.addEventListener("click", async () => {
+  await saveControlSettings();
   if ($("advancedHint")) $("advancedHint").textContent = "Saved";
   toast("Saved");
+  await refresh();
+});
+
+$("btnStartSession")?.addEventListener("click", async () => {
+  await saveControlSettings();
+  const result = await chrome.runtime.sendMessage({ type: "startControlSession" });
+  toast(result?.ok ? "Control session started" : result?.error || "Could not start session", result?.ok ? "ok" : "bad");
+  await refresh();
+});
+
+$("btnEndSession")?.addEventListener("click", async () => {
+  const result = await chrome.runtime.sendMessage({ type: "endControlSession" });
+  toast(result?.ok ? "Control session ended" : result?.error || "Could not end session", result?.ok ? "ok" : "bad");
   await refresh();
 });
 
@@ -864,3 +1041,10 @@ setInterval(async () => {
     await autoConnect({ quiet: true });
   }
 }, 15000);
+
+let storageRefreshTimer = null;
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.settings || !bootDone) return;
+  if (storageRefreshTimer) clearTimeout(storageRefreshTimer);
+  storageRefreshTimer = setTimeout(() => refresh().catch(() => {}), 80);
+});

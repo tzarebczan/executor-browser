@@ -37,3 +37,16 @@ test("manifest version matches reverse-bridge client version", async () => {
   );
   assert.match(reverseBridge, new RegExp(`version: "${manifest.version}"`));
 });
+
+test("browser use history supports individual removal and active indicators", async () => {
+  const background = await readFile(new URL("../extension/background.js", import.meta.url), "utf8");
+  const reverseBridge = await readFile(
+    new URL("../extension/lib/reverse-bridge.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(background, /case "removeActivity"/);
+  assert.match(background, /setBadgeText\(\{ text: "USE" \}\)/);
+  assert.match(background, /\[ACTIVE\]/);
+  assert.match(reverseBridge, /browserActivityEntry\(job, result, startedAt\)/);
+});
