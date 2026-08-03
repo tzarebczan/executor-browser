@@ -3,6 +3,8 @@ import { beforeEach, test } from "node:test";
 
 const state = {
   groupId: 11,
+  storedGroupId: 11,
+  groupMigrated: true,
   tabs: new Map(),
   executeScript: null,
   captureDataUrl: "data:image/jpeg;base64,full-image-data",
@@ -13,20 +15,33 @@ globalThis.chrome = {
     local: {
       async get(key) {
         if (key === "settings") return { settings: { groupTitle: "Executor" } };
-        if (key === "executorAgentGroupId" && state.groupId != null) {
-          return { executorAgentGroupId: state.groupId };
+        if (Array.isArray(key)) {
+          return {
+            ...(state.storedGroupId != null
+              ? { executorAgentGroupId: state.storedGroupId }
+              : {}),
+            ...(state.groupMigrated ? { executorAgentGroupMigrated: true } : {}),
+          };
         }
         return {};
       },
       async set(value) {
-        if (Number.isInteger(value.executorAgentGroupId)) state.groupId = value.executorAgentGroupId;
+        if (Number.isInteger(value.executorAgentGroupId)) {
+          state.storedGroupId = value.executorAgentGroupId;
+        }
+        if (value.executorAgentGroupMigrated) state.groupMigrated = true;
       },
       async remove() {
-        state.groupId = null;
+        state.storedGroupId = null;
       },
     },
   },
   tabGroups: {
+    async query({ title }) {
+      return state.groupId != null && title === "Executor"
+        ? [{ id: state.groupId, title: "Executor" }]
+        : [];
+    },
     async get(groupId) {
       if (groupId !== state.groupId) throw new Error("missing group");
       return { id: groupId, title: "Executor" };
@@ -70,6 +85,8 @@ const { runBrowserTool } = await import("../extension/lib/browser-tools.js");
 
 beforeEach(() => {
   state.groupId = 11;
+  state.storedGroupId = 11;
+  state.groupMigrated = true;
   state.tabs = new Map([
     [1, { id: 1, groupId: 11, windowId: 1, url: "https://example.test", active: true }],
     [7, { id: 7, groupId: 99, windowId: 1, url: "https://private.test", active: false }],
@@ -85,9 +102,21 @@ test("rejects an explicit tab outside the extension-owned group", async () => {
 });
 
 test("does not fall back to a personal active tab when no owned group exists", async () => {
-  state.groupId = null;
+  state.storedGroupId = null;
   const result = await runBrowserTool("snapshot", {});
   assert.equal(result.ok, false);
+});
+
+test("migrates one existing legacy Executor group to owned storage", async () => {
+  state.storedGroupId = null;
+  state.groupMigrated = false;
+
+  const result = await runBrowserTool("tabs.list", {});
+
+  assert.equal(result.ok, true);
+  assert.equal(result.tabs.length, 1);
+  assert.equal(state.storedGroupId, 11);
+  assert.equal(state.groupMigrated, true);
 });
 
 test("submits a form exactly once", async () => {

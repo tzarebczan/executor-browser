@@ -67,7 +67,7 @@ UI frames the preview as a **viewfinder** (corner registration marks) with a "St
 
 - MV3 side panel HTML/CSS/JS, no framework.
 - `sidebar.js` message API and element IDs are the contract — the HTML serves them (`btnCapture`, `btnConnect`, `executorUrl`, `connectMatrix`, `agentPrompt`, drive chips `data-drive`, mode radios `name="mode"`, …). Restyle/restructure freely around those hooks.
-- Preserve auto-connect, reverse path B default, Advanced companion/native below fold.
+- Preserve auto-connect + reverse bridge only (no native host / companion).
 - Version bump on ship (v0.7.0).
 
 ## Deliverables

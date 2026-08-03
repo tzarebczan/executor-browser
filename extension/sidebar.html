@@ -176,107 +176,33 @@
           <div class="mx-group connect-opt" id="connectOptional">
             <div class="mx-group-head">
               <span>Browser drive</span>
-              <span class="mx-tag" id="driveModeTag">B · reverse</span>
+              <span class="mx-tag ok-tag" id="driveModeTag">reverse</span>
             </div>
             <p class="mx-blurb" id="connectDriveBlurb">
-              Default: extension reverse channel — no local script. Connect starts it after the key is verified.
+              Extension reverse channel — agents use tools.browser.user.desktop after Connect. No local
+              script required.
             </p>
             <ul class="matrix" id="connectMatrixOpt" aria-live="polite"></ul>
-            <div class="preset-row" id="driveModeRow">
-              <button type="button" class="chip active" data-drive="reverse">Extension (B)</button>
-              <button type="button" class="chip" data-drive="native">Native host (C)</button>
-              <button type="button" class="chip" data-drive="companion">Companion</button>
-            </div>
             <div class="actions">
-              <button type="button" class="ghost sm" id="btnStartDrive">Enable drive</button>
+              <button type="button" class="ghost sm" id="btnStartDrive">Restart reverse</button>
               <button type="button" class="ghost sm" id="btnPingDrive">Ping tools</button>
             </div>
           </div>
         </div>
 
-        <!-- Advanced: native host + legacy companion, below the fold -->
-        <details class="adv below-fold" id="advPanel">
-          <summary>
-            Advanced
-            <span class="muted" id="advSummary">native · companion</span>
-          </summary>
-
-          <div class="adv-block">
-            <h2>C · Native messaging host</h2>
-            <p class="hint tight">
-              The host manifest alone is not enough — it points Chrome at a binary. One-time install,
-              no always-on script. Full CDP once the host is present.
-            </p>
-            <p class="hint tight" id="nativeHostHint">Host: com.executor.browser</p>
-            <div class="actions">
-              <button type="button" class="primary sm" id="btnConnectNative">Connect host</button>
-              <button type="button" class="ghost sm" id="btnNativeInfo">Copy install JSON</button>
-            </div>
+        <div class="module">
+          <div class="module-head">
+            <h2>Settings</h2>
           </div>
-
-          <p class="hint tight">
-            <strong>Legacy lab:</strong> companion on :9230 (Node). Prefer B unless you need full DevTools MCP.
-          </p>
-
-          <ul class="matrix tight" id="advMatrix"></ul>
-
-          <div class="install-steps" id="companionInstall">
-            <div class="install-step">
-              <span class="n">1</span>
-              <div>
-                <strong>Remote debugging</strong>
-                <p class="hint tight"><code>chrome://inspect/#remote-debugging</code> → Allow</p>
-                <button type="button" class="ghost sm" id="btnDebug">Open</button>
-              </div>
-            </div>
-            <div class="install-step">
-              <span class="n">2</span>
-              <div>
-                <strong>Companion (lab)</strong>
-                <pre class="cmd" id="companionCmd">node infra/host/chrome-agent/start-companion.mjs</pre>
-                <div class="actions">
-                  <button type="button" class="ghost sm" id="btnCopyCompanionCmd">Copy</button>
-                  <button type="button" class="ghost sm" id="btnRecheckCompanion">Recheck</button>
-                </div>
-              </div>
-            </div>
-            <div class="install-step">
-              <span class="n">3</span>
-              <div>
-                <strong>MCP endpoint</strong>
-                <label class="field">
-                  <input
-                    id="publicEndpoint"
-                    type="url"
-                    placeholder="http://100.x.x.x:9230/mcp"
-                    autocomplete="off"
-                  />
-                </label>
-                <div class="actions">
-                  <button type="button" class="ghost sm" id="btnDetectTs">Detect TS IP</button>
-                  <button type="button" class="primary sm" id="btnRegisterAutomation">Register</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
           <label class="field">
-            Health URL
-            <input id="healthUrl" type="url" placeholder="http://127.0.0.1:9230/healthz" autocomplete="off" />
-          </label>
-          <label class="field">
-            Local MCP
-            <input id="mcpUrl" type="url" placeholder="http://127.0.0.1:9230/mcp" autocomplete="off" />
-          </label>
-          <label class="field">
-            Tab group
+            Tab group title
             <input id="groupTitle" type="text" placeholder="Executor" autocomplete="off" />
           </label>
           <div class="actions">
             <button type="button" class="ghost sm" id="btnSaveAdvanced">Save</button>
           </div>
           <p class="hint" id="advancedHint" role="status"></p>
-        </details>
+        </div>
       </section>
 
       <!-- TABS -->
@@ -295,30 +221,10 @@
           </ul>
         </div>
 
-        <div class="module">
-          <h2>Mode</h2>
-          <label class="radio">
-            <input type="radio" name="mode" value="existing" checked />
-            <span>
-              <strong>This Chrome</strong>
-              <small>Keep logins · optional CDP</small>
-            </span>
-          </label>
-          <label class="radio">
-            <input type="radio" name="mode" value="fresh" />
-            <span>
-              <strong>Fresh profile</strong>
-              <small>Isolated · needs companion</small>
-            </span>
-          </label>
-          <label class="radio">
-            <input type="radio" name="mode" value="extension-only" />
-            <span>
-              <strong>Extension only</strong>
-              <small>Groups + preview</small>
-            </span>
-          </label>
-        </div>
+        <p class="hint tight">
+          Agents only control tabs in this group. Open Agent tab adds a normal page and claims it for
+          Executor.
+        </p>
       </section>
 
       <!-- AGENTS -->
@@ -340,7 +246,7 @@
           <div class="mx-group optional">
             <div class="mx-group-head">
               <span>Browser drive</span>
-              <span class="mx-tag optional-tag">path B</span>
+              <span class="mx-tag optional-tag">reverse</span>
             </div>
             <p class="mx-blurb" id="driveBlurb">
               Extension reverse channel. Agents use tools.browser.user.desktop — not the Capture button.
@@ -360,7 +266,7 @@
         </div>
 
         <footer class="inline-foot">
-          <span id="versionLabel">v0.7.1 · patch bay</span>
+          <span id="versionLabel">v0.8.0 · reverse only</span>
         </footer>
       </section>
     </div>

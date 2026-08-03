@@ -11,6 +11,14 @@ test("does not expose browser control to web pages", async () => {
   assert.doesNotMatch(background, /pairFromWeb/);
 });
 
+test("uses one owned-tab source for both UI status and remote tools", async () => {
+  const background = await readFile(new URL("../extension/background.js", import.meta.url), "utf8");
+
+  assert.match(background, /import\s*\{[^}]*listAgentTabs[^}]*\}\s*from "\.\/lib\/browser-tools\.js"/s);
+  assert.doesNotMatch(background, /async function listAgentTabs/);
+  assert.doesNotMatch(background, /chrome\.windows\.getAll/);
+});
+
 test("does not truncate reverse-bridge screenshot results", async () => {
   const reverseBridge = await readFile(
     new URL("../extension/lib/reverse-bridge.js", import.meta.url),

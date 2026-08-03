@@ -1,10 +1,11 @@
 /**
- * Extension-native browser tools (path B).
- * Uses chrome.tabs / scripting / captureVisibleTab — no companion port.
+ * Extension browser tools (reverse bridge).
+ * Uses chrome.tabs / scripting / captureVisibleTab — Executor group only.
  */
 
 const GROUP_TITLE_DEFAULT = "Executor";
 const GROUP_STORAGE_KEY = "executorAgentGroupId";
+const GROUP_MIGRATION_KEY = "executorAgentGroupMigrated";
 /** tabId → { url, nodes } — invalidated on navigate / URL change / size cap */
 const snapshotHandles = new Map();
 const SNAPSHOT_HANDLE_MAX = 24;
@@ -34,7 +35,7 @@ async function getGroupTitle() {
   }
 }
 
-async function listAgentTabs() {
+export async function listAgentTabs() {
   const groupId = await getOwnedGroupId();
   if (groupId == null) return [];
   const tabs = await chrome.tabs.query({});
@@ -50,25 +51,42 @@ async function listAgentTabs() {
 }
 
 async function getOwnedGroupId() {
-  const stored = await chrome.storage.local.get(GROUP_STORAGE_KEY);
+  const stored = await chrome.storage.local.get([GROUP_STORAGE_KEY, GROUP_MIGRATION_KEY]);
   const groupId = stored?.[GROUP_STORAGE_KEY];
-  if (!Number.isInteger(groupId)) return null;
-  try {
-    await chrome.tabGroups.get(groupId);
-    return groupId;
-  } catch {
-    await chrome.storage.local.remove(GROUP_STORAGE_KEY);
-    return null;
+  if (Number.isInteger(groupId)) {
+    try {
+      await chrome.tabGroups.get(groupId);
+      return groupId;
+    } catch {
+      await chrome.storage.local.remove(GROUP_STORAGE_KEY);
+      await chrome.storage.local.set({ [GROUP_MIGRATION_KEY]: true });
+      return null;
+    }
   }
+
+  if (stored?.[GROUP_MIGRATION_KEY]) return null;
+
+  // One-time upgrade from v0.6, which identified the agent group by title only.
+  const title = await getGroupTitle();
+  const legacyGroups = await chrome.tabGroups.query({ title });
+  await chrome.storage.local.set({ [GROUP_MIGRATION_KEY]: true });
+  if (legacyGroups.length !== 1) return null;
+
+  const legacyGroupId = legacyGroups[0].id;
+  await chrome.storage.local.set({ [GROUP_STORAGE_KEY]: legacyGroupId });
+  return legacyGroupId;
 }
 
-async function ensureGroup(tabIds) {
+export async function ensureAgentTabGroup(tabIds) {
   const title = await getGroupTitle();
   let groupId = await getOwnedGroupId();
   if (groupId == null && tabIds?.length) {
     groupId = await chrome.tabs.group({ tabIds });
     await chrome.tabGroups.update(groupId, { title, color: "blue", collapsed: false });
-    await chrome.storage.local.set({ [GROUP_STORAGE_KEY]: groupId });
+    await chrome.storage.local.set({
+      [GROUP_STORAGE_KEY]: groupId,
+      [GROUP_MIGRATION_KEY]: true,
+    });
   } else if (groupId != null && tabIds?.length) {
     await chrome.tabs.group({ tabIds, groupId });
   }
@@ -274,14 +292,14 @@ async function navigate(tabId, { url, newTab, active = true } = {}) {
   }
   if (newTab) {
     const tab = await chrome.tabs.create({ url, active });
-    await ensureGroup([tab.id]);
+    await ensureAgentTabGroup([tab.id]);
     clearSnapshotHandle(tab.id);
     return { ok: true, tab: { id: tab.id, url: tab.url } };
   }
   const tab = await resolveTab(tabId);
   if (!tab?.id) {
     const created = await chrome.tabs.create({ url, active: true });
-    await ensureGroup([created.id]);
+    await ensureAgentTabGroup([created.id]);
     clearSnapshotHandle(created.id);
     return { ok: true, tab: { id: created.id, url } };
   }

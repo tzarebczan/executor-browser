@@ -193,45 +193,21 @@
               <div class="mx-group connect-opt">
                 <div class="mx-group-head">
                   <span>Browser drive</span>
-                  <span class="mx-tag ok-tag" id="driveModeTag">B · reverse</span>
+                  <span class="mx-tag ok-tag" id="driveModeTag">reverse</span>
                 </div>
                 <p class="mx-blurb" id="connectDriveBlurb">
-                  Path B active — extension reverse session with Executor. No local script.
+                  Reverse session live — agents use tools.browser.user.desktop. No local script.
                 </p>
                 <ul class="matrix" id="connectMatrixOpt"></ul>
                 <div class="preset-row">
-                  <button type="button" class="chip active" data-drive="reverse">Extension (B)</button>
-                  <button type="button" class="chip" data-drive="native">Native host (C)</button>
-                  <button type="button" class="chip" data-drive="companion">Companion</button>
+                  <span class="chip on">Reverse only</span>
                 </div>
                 <div class="actions">
-                  <button type="button" class="ghost sm">Enable drive</button>
+                  <button type="button" class="ghost sm">Restart reverse</button>
                   <button type="button" class="ghost sm">Ping tools</button>
                 </div>
               </div>
             </div>
-
-            <details class="adv below-fold">
-              <summary>
-                Advanced
-                <span class="muted">native · companion</span>
-              </summary>
-              <div class="adv-block">
-                <h2>C · Native messaging host</h2>
-                <p class="hint tight">
-                  The host manifest alone is not enough — it points Chrome at a binary. One-time
-                  install, no always-on script. Full CDP once the host is present.
-                </p>
-                <div class="actions">
-                  <button type="button" class="primary sm">Connect host</button>
-                  <button type="button" class="ghost sm">Copy install JSON</button>
-                </div>
-              </div>
-              <p class="hint tight">
-                <strong>Legacy lab:</strong> companion on :9230 (Node). Prefer B unless you need
-                full DevTools MCP.
-              </p>
-            </details>
           </section>
 
           <!-- TABS -->

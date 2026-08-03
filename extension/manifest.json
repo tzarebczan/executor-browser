@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Executor Browser",
-  "version": "0.7.1",
-  "description": "Connect Chrome to Executor over Tailscale. Browser drive via extension reverse channel (default) or native host.",
+  "version": "0.8.0",
+  "description": "Connect Chrome to Executor over Tailscale. Reverse browser bridge for tools.browser.user.desktop.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -33,8 +33,7 @@
     "tabGroups",
     "tabs",
     "scripting",
-    "alarms",
-    "nativeMessaging"
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>",

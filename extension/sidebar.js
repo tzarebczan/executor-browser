@@ -11,8 +11,6 @@ let lastExecutorProbe = null;
 /** Auth verified this session (MCP initialize + key). */
 let authOk = false;
 let authChecking = false;
-/** Automation register result this session. */
-let automationOk = false;
 let bootDone = false;
 
 function toast(msg, kind = "ok") {
@@ -113,39 +111,23 @@ function matrixRow(state, label, detail = "", opts = {}) {
 function deriveFlags(status) {
   const settings = status?.settings || {};
   const executor = status?.executor || lastExecutorProbe;
-  const companion = status?.companion;
   const executorReach = Boolean(executor?.ok);
   const hasKey = Boolean(settings.hasApiKey);
-  const companionOn = Boolean(companion?.ok);
-  const hasEndpoint = Boolean(settings.publicEndpoint || $("publicEndpoint")?.value?.trim());
   const connected = authOk;
-  const driveMode = status?.driveMode || settings.driveMode || "reverse";
   const reverse = status?.reverse || {};
-  const native = status?.native || {};
   const driveReady = Boolean(status?.driveReady);
-  // extension reverse tools ready even if server bridge API not yet deployed
-  const reverseReady = reverse.mode === "reverse" && reverse.running;
+  const tabCount = status?.tabs?.length || 0;
+  const reverseReady = reverse.mode === "reverse" && reverse.running && tabCount > 0;
   return {
     settings,
     executor,
-    companion,
     executorReach,
     hasKey,
     connected,
-    companionOn,
-    hasEndpoint,
-    driveMode,
     reverse,
-    native,
     driveReady,
     reverseReady,
-    automationOk:
-      automationOk ||
-      driveReady ||
-      reverseReady ||
-      Boolean(settings.chromeRegistered) ||
-      Boolean(native.connected),
-    tabs: status?.tabs?.length || 0,
+    tabs: tabCount,
   };
 }
 
@@ -231,44 +213,23 @@ function renderConnectState(f) {
   }
 
   if ($("driveModeTag")) {
-    const labels = {
-      reverse: "B · reverse",
-      native: "C · native",
-      companion: "legacy",
-      off: "off",
-    };
-    $("driveModeTag").textContent = labels[f.driveMode] || f.driveMode;
+    $("driveModeTag").textContent = "reverse";
     $("driveModeTag").className =
       f.driveReady || f.reverseReady ? "mx-tag ok-tag" : "mx-tag";
   }
 
   if ($("connectDriveBlurb")) {
-    if (f.driveMode === "reverse") {
-      if (f.reverse?.mode === "reverse") {
-        $("connectDriveBlurb").textContent =
-          "Path B active — extension reverse session with Executor. No local script.";
-      } else if (f.connected) {
-        $("connectDriveBlurb").textContent =
-          "Path B (default): extension reverse channel after connect. No companion script.";
-      } else {
-        $("connectDriveBlurb").textContent =
-          "Connect first. Browser drive uses extension reverse channel (B) by default.";
-      }
-    } else if (f.driveMode === "native") {
-      $("connectDriveBlurb").textContent = f.native?.connected
-        ? "Path C: native host connected (full CDP path)."
-        : "Path C: install native host once (manifest + binary), then Connect host.";
-    } else if (f.driveMode === "companion") {
-      $("connectDriveBlurb").textContent = f.companionOn
-        ? "Legacy companion up — Register under Advanced if not yet."
-        : "Legacy companion mode — start Node MCP on :9230 (lab).";
+    if (f.reverse?.mode === "reverse") {
+      $("connectDriveBlurb").textContent =
+        "Reverse session live — agents drive this Chrome via tools.browser.user.desktop.";
+    } else if (f.connected) {
+      $("connectDriveBlurb").textContent =
+        "Auth OK. Reverse channel starts automatically after Connect.";
+    } else {
+      $("connectDriveBlurb").textContent =
+        "Connect with URL + API key. Drive uses the extension reverse bridge only.";
     }
   }
-
-  // drive mode chips
-  document.querySelectorAll("[data-drive]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.drive === f.driveMode);
-  });
 }
 
 function renderMatrices(status) {
@@ -294,37 +255,26 @@ function renderMatrices(status) {
   ].join("");
 
   let driveState = "skip";
-  let drivePill = "off";
-  if (f.driveMode === "reverse") {
-    if (f.reverse?.mode === "reverse") {
-      driveState = "ok";
-      drivePill = "session live";
-    } else if (f.connected) {
-      driveState = "warn";
-      drivePill = "starting…";
-    } else {
-      drivePill = "connect first";
-    }
-  } else if (f.driveMode === "native") {
-    driveState = f.native?.connected ? "ok" : "warn";
-    drivePill = f.native?.connected ? "host up" : "host missing";
-  } else if (f.driveMode === "companion") {
-    driveState = f.automationOk && f.companionOn ? "ok" : f.companionOn ? "warn" : "skip";
-    drivePill = f.automationOk ? "registered" : f.companionOn ? "local only" : "off";
+  let drivePill = "connect first";
+  if (f.reverse?.mode === "reverse") {
+    driveState = f.driveReady || f.reverseReady ? "ok" : "warn";
+    drivePill = f.driveReady || f.reverseReady ? "session live" : "session · need agent tab";
+  } else if (f.connected) {
+    driveState = "warn";
+    drivePill = f.reverse?.mode || "starting…";
   }
 
   const connectOptRows = [
-    matrixRow(driveState, "Drive path", drivePill),
+    matrixRow(driveState, "Reverse", drivePill),
     matrixRow(
       f.reverseReady || f.driveReady ? "ok" : "skip",
       "Extension tools",
-      f.reverseReady || f.driveMode === "reverse" ? "snapshot·click·type" : "—",
+      "snapshot · click · type",
     ),
   ].join("");
 
   renderConnectState(f);
 
-  // Agents → Core (required)
   const coreRows = [
     matrixRow(f.executorReach ? "ok" : "bad", "Executor", reachDetail),
     matrixRow(authState, "API key", authDetail),
@@ -338,46 +288,14 @@ function renderMatrices(status) {
   const revMode = f.reverse?.mode || "idle";
   const driveRows = [
     matrixRow(
-      f.driveMode === "reverse" && revMode === "reverse"
-        ? "ok"
-        : f.driveMode === "reverse"
-          ? "skip"
-          : "skip",
-      "B · Reverse",
-      revMode === "reverse" ? "session" : revMode,
+      revMode === "reverse" ? "ok" : f.connected ? "warn" : "skip",
+      "Reverse session",
+      revMode === "reverse" ? "live" : revMode,
     ),
     matrixRow(
-      f.native?.connected ? "ok" : "skip",
-      "C · Native host",
-      f.native?.connected ? "connected" : "not installed",
-      { optional: true },
-    ),
-    matrixRow(
-      f.companionOn ? "ok" : "skip",
-      "Legacy companion",
-      f.companionOn ? `${f.companion?.ms ?? "?"}ms` : "off",
-      { optional: true },
-    ),
-  ].join("");
-
-  const advRows = [
-    matrixRow(
-      f.native?.connected ? "ok" : "skip",
-      "Native host",
-      f.native?.connected ? "up" : f.native?.lastError || "not found",
-      { optional: true },
-    ),
-    matrixRow(
-      f.companionOn ? "ok" : "skip",
-      "Companion :9230",
-      f.companionOn ? "healthy" : "off",
-      { optional: true },
-    ),
-    matrixRow(
-      f.hasEndpoint ? "ok" : "skip",
-      "Public MCP URL",
-      f.hasEndpoint ? "set" : "—",
-      { optional: true },
+      f.tabs > 0 ? "ok" : "skip",
+      "Group tabs",
+      f.tabs > 0 ? String(f.tabs) : "open a tab",
     ),
   ].join("");
 
@@ -385,14 +303,12 @@ function renderMatrices(status) {
   if ($("connectMatrixOpt")) $("connectMatrixOpt").innerHTML = connectOptRows;
   if ($("agentMatrixCore")) $("agentMatrixCore").innerHTML = coreRows;
   if ($("agentMatrixDrive")) $("agentMatrixDrive").innerHTML = driveRows;
-  if ($("agentMatrix") && !$("agentMatrixCore")) $("agentMatrix").innerHTML = coreRows + driveRows;
-  if ($("advMatrix")) $("advMatrix").innerHTML = advRows;
 
   if ($("useBadge")) {
     if (!f.connected) {
       $("useBadge").textContent = "setup";
       $("useBadge").className = "badge soft";
-    } else if (f.automationOk) {
+    } else if (f.driveReady || f.reverseReady) {
       $("useBadge").textContent = "full";
       $("useBadge").className = "badge";
     } else {
@@ -407,13 +323,12 @@ function renderMatrices(status) {
   }
 
   if ($("driveBlurb")) {
-    if (f.driveMode === "reverse" && revMode === "reverse") {
-      $("driveBlurb").textContent = "Path B reverse session live — agents can drive via Executor bridge.";
-    } else if (f.native?.connected) {
-      $("driveBlurb").textContent = "Path C native host connected.";
+    if (revMode === "reverse") {
+      $("driveBlurb").textContent =
+        "Reverse session live — agents use tools.browser.user.desktop (not Capture).";
     } else {
       $("driveBlurb").textContent =
-        "Default drive is extension reverse (B). Native host (C) or companion under Advanced.";
+        "Connect starts reverse automatically. Open an agent tab so tools have a target.";
     }
   }
 
@@ -421,20 +336,10 @@ function renderMatrices(status) {
     if (!f.executorReach) $("nextHint").textContent = "Not connected: Tailscale / Detect.";
     else if (!f.hasKey) $("nextHint").textContent = "Not connected: paste API key.";
     else if (!f.connected) $("nextHint").textContent = "Not connected: auth failed or verifying.";
+    else if (revMode === "reverse" && f.tabs === 0)
+      $("nextHint").textContent = "Connected — open an agent tab for drive.";
     else if (revMode === "reverse") $("nextHint").textContent = "Connected + reverse browser bridge.";
     else $("nextHint").textContent = "Connected to Executor.";
-  }
-
-  if ($("advSummary")) {
-    if (f.native?.connected) $("advSummary").textContent = "native up";
-    else if (f.companionOn) $("advSummary").textContent = "companion up";
-    else $("advSummary").textContent = "optional";
-  }
-
-  if ($("nativeHostHint") && f.native) {
-    $("nativeHostHint").textContent = f.native.connected
-      ? "Native host connected"
-      : f.native.lastError || "Host: com.executor.browser (not installed)";
   }
 }
 
@@ -486,15 +391,13 @@ function renderSetup(status) {
   else if (!f.hasKey) $("headerStatus").textContent = "Needs API key";
   else if (!f.connected) $("headerStatus").textContent = "Auth failed";
   else if (f.reverse?.mode === "reverse" || f.driveReady) $("headerStatus").textContent = "Connected · reverse";
-  else if (f.automationOk) $("headerStatus").textContent = "Connected · automation";
-  else if (f.native?.connected) $("headerStatus").textContent = "Connected · native";
   else $("headerStatus").textContent = "Connected";
 }
 
 async function refresh() {
   const status = await chrome.runtime.sendMessage({ type: "getStatus" });
   lastStatus = status;
-  const { companion, settings, tabs, activity, executor } = status;
+  const { settings, tabs, activity, executor } = status;
   lastExecutorProbe = executor ?? lastExecutorProbe;
 
   const executorOk = Boolean(executor?.ok);
@@ -504,15 +407,14 @@ async function refresh() {
     setStat($("executorStat"), settings?.executorUrl ? "offline" : "—", "bad");
   }
 
-  // Signal rail: reverse / drive path
-  const driveMode = status.driveMode || settings?.driveMode || "reverse";
+  // Signal rail: reverse bridge
   const rev = status.reverse || {};
   if (status.driveReady || rev.mode === "reverse") {
-    setStat($("companionStat"), driveMode === "reverse" ? "live" : "on", "ok");
-  } else if (status.native?.connected) {
-    setStat($("companionStat"), "C", "ok");
-  } else if (companion?.ok) {
-    setStat($("companionStat"), "local", "warn");
+    setStat($("companionStat"), "live", "ok");
+  } else if (rev.mode === "unsupported") {
+    setStat($("companionStat"), "n/a", "warn");
+  } else if (authOk) {
+    setStat($("companionStat"), rev.mode || "…", "warn");
   } else {
     setStat($("companionStat"), "off", "warn");
   }
@@ -524,16 +426,14 @@ async function refresh() {
   if (document.activeElement?.id !== "executorUrl") {
     $("executorUrl").value = settings.executorUrl || "";
   }
-  if (settings.publicEndpoint && document.activeElement?.id !== "publicEndpoint") {
-    $("publicEndpoint").value = settings.publicEndpoint;
-  }
   if (settings.hasApiKey && document.activeElement?.id !== "executorApiKey") {
     $("executorApiKey").placeholder = "•••• saved";
   }
-
-  const mode = settings.mode || "existing";
-  for (const el of document.querySelectorAll('input[name="mode"]')) {
-    el.checked = el.value === mode;
+  if ($("groupTitle") && document.activeElement?.id !== "groupTitle" && settings.groupTitle) {
+    $("groupTitle").value = settings.groupTitle;
+  }
+  if ($("groupBadge") && settings.groupTitle) {
+    $("groupBadge").textContent = settings.groupTitle;
   }
 
   const list = $("tabList");
@@ -656,21 +556,13 @@ async function capture({ focus = false, soft = false } = {}) {
 }
 
 async function openAgentTab() {
-  const mode = document.querySelector('input[name="mode"]:checked')?.value || "existing";
-  await chrome.runtime.sendMessage({ type: "saveSettings", settings: { mode } });
   await chrome.runtime.sendMessage({
     type: "openAgentTab",
     url: "https://tbd.jiggytom.com/",
   });
   await refresh();
-  // Soft preview after paint; rate-limited so it won't collide with boot capture
   setTimeout(() => capture({ focus: false, soft: true }), 1600);
   toast("Opened agent tab");
-}
-
-async function saveMode() {
-  const mode = document.querySelector('input[name="mode"]:checked')?.value;
-  if (mode) await chrome.runtime.sendMessage({ type: "saveSettings", settings: { mode } });
 }
 
 /** Auto-verify API key against Executor MCP. */
@@ -716,126 +608,6 @@ async function autoConnect({ quiet = true } = {}) {
   return res;
 }
 
-/** WebRTC Tailscale IP (panel). */
-function detectTsWebRtc(timeoutMs = 2800) {
-  return new Promise((resolve) => {
-    const ips = new Set();
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      try {
-        pc.close();
-      } catch {
-        /* ignore */
-      }
-      resolve([...ips].find((ip) => /^100\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) || null);
-    };
-    let pc;
-    try {
-      pc = new RTCPeerConnection({ iceServers: [] });
-    } catch {
-      resolve(null);
-      return;
-    }
-    pc.createDataChannel("");
-    pc.onicecandidate = (ev) => {
-      const c = ev.candidate?.candidate;
-      if (!c) return;
-      const m = c.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
-      if (m) ips.add(m[1]);
-    };
-    pc.createOffer()
-      .then((o) => pc.setLocalDescription(o))
-      .catch(() => finish());
-    setTimeout(finish, timeoutMs);
-  });
-}
-
-/** Advanced: companion/TS only when drive mode is companion (not path B reverse). */
-async function autoAdvanced({ register = true } = {}) {
-  const driveMode =
-    lastStatus?.driveMode || lastStatus?.settings?.driveMode || "reverse";
-
-  // Path B: never register MCP chrome/desktop — that creates a remote catalog
-  // sync against :9230 and surfaces "incomplete tool catalog" when companion is off.
-  if (driveMode === "reverse" || driveMode === "off") {
-    if ($("advancedHint")) {
-      $("advancedHint").textContent =
-        driveMode === "reverse"
-          ? "Path B reverse — skip companion MCP register"
-          : "Drive off";
-    }
-    return { companion: false, skipped: true, reason: driveMode };
-  }
-
-  const companion = await chrome.runtime.sendMessage({ type: "checkCompanion" });
-  if (!companion?.ok) {
-    if ($("advancedHint")) $("advancedHint").textContent = "Companion offline";
-    automationOk = false;
-    await refresh();
-    return { companion: false };
-  }
-
-  let endpoint = $("publicEndpoint")?.value?.trim() || lastStatus?.settings?.publicEndpoint;
-  if (!endpoint) {
-    let ip = await detectTsWebRtc();
-    if (!ip) {
-      const res = await chrome.runtime.sendMessage({ type: "detectTailscale" });
-      if (res?.ok && res.ip) ip = res.ip;
-    }
-    if (ip) {
-      endpoint = `http://${ip}:9230/mcp`;
-      $("publicEndpoint").value = endpoint;
-      await chrome.runtime.sendMessage({ type: "saveSecrets", publicEndpoint: endpoint });
-    }
-  }
-
-  // Native host mode: probe only, don't force MCP register unless companion mode
-  if (driveMode === "native") {
-    if ($("advancedHint")) {
-      $("advancedHint").textContent = companion?.ok
-        ? "Native mode — use Connect host in Advanced"
-        : "Native host offline";
-    }
-    await refresh();
-    return { companion: Boolean(companion?.ok), endpoint, registered: false };
-  }
-
-  if (!register || !authOk || !endpoint) {
-    if ($("advancedHint")) {
-      $("advancedHint").textContent = endpoint
-        ? `Companion up · ${endpoint}`
-        : "Companion up · set MCP URL";
-    }
-    await refresh();
-    return { companion: true, endpoint, registered: false };
-  }
-
-  // Already registered
-  if (lastStatus?.settings?.chromeRegistered && lastStatus?.settings?.publicEndpoint === endpoint) {
-    automationOk = true;
-    if ($("advancedHint")) $("advancedHint").textContent = "Automation already registered";
-    await refresh();
-    return { companion: true, endpoint, registered: true };
-  }
-
-  if ($("advancedHint")) $("advancedHint").textContent = "Registering automation…";
-  const res = await chrome.runtime.sendMessage({
-    type: "registerExecutor",
-    endpoint,
-  });
-  automationOk = Boolean(res?.ok);
-  if ($("advancedHint")) {
-    $("advancedHint").textContent = res?.ok
-      ? "Automation registered"
-      : res?.error || "Register failed";
-  }
-  if (res?.ok) toast("Automation on");
-  await refresh();
-  return { companion: true, endpoint, registered: automationOk };
-}
-
 // ── events ──────────────────────────────────────────────
 
 document.querySelectorAll("[data-preset]").forEach((btn) => {
@@ -855,39 +627,12 @@ document.querySelectorAll("[data-preset]").forEach((btn) => {
 $("btnRefresh").addEventListener("click", async () => {
   await refresh();
   await autoConnect({ quiet: true });
-  await autoAdvanced({ register: true });
 });
 
 $("btnCapture").addEventListener("click", () => capture({ focus: true }));
 $("btnCaptureTabs")?.addEventListener("click", () => capture({ focus: true }));
 $("btnOpenTab").addEventListener("click", () => openAgentTab());
 $("btnOpenTabHome").addEventListener("click", () => openAgentTab());
-
-$("btnDebug").addEventListener("click", async () => {
-  try {
-    await chrome.tabs.create({ url: "chrome://inspect/#remote-debugging" });
-    toast("Allow remote debugging once");
-  } catch {
-    toast("Open chrome://inspect/#remote-debugging manually", "bad");
-  }
-});
-
-$("btnCopyCompanionCmd")?.addEventListener("click", async () => {
-  const cmd =
-    $("companionCmd")?.textContent?.trim() ||
-    "node infra/host/chrome-agent/start-companion.mjs";
-  try {
-    await navigator.clipboard.writeText(cmd);
-    toast("Copied");
-  } catch {
-    toast(cmd, "ok");
-  }
-});
-
-$("btnRecheckCompanion")?.addEventListener("click", async () => {
-  await autoAdvanced({ register: true });
-  toast(lastStatus?.companion?.ok ? "Companion online" : "Companion offline", lastStatus?.companion?.ok ? "ok" : "bad");
-});
 
 $("btnDetectExecutor").addEventListener("click", async () => {
   $("connectHint").textContent = "Probing…";
@@ -924,29 +669,6 @@ $("btnTestExecutor").addEventListener("click", async () => {
   await refresh();
 });
 
-$("btnDetectTs").addEventListener("click", async () => {
-  $("advPanel").open = true;
-  let ip = await detectTsWebRtc();
-  let source = "webrtc";
-  if (!ip) {
-    const res = await chrome.runtime.sendMessage({ type: "detectTailscale" });
-    if (res?.ok && res.ip) {
-      ip = res.ip;
-      source = res.source || "bg";
-    } else {
-      toast(res?.error || "No TS IP", "bad");
-      return;
-    }
-  }
-  $("publicEndpoint").value = `http://${ip}:9230/mcp`;
-  await chrome.runtime.sendMessage({
-    type: "saveSecrets",
-    publicEndpoint: `http://${ip}:9230/mcp`,
-  });
-  toast(`${ip} (${source})`);
-  await refresh();
-});
-
 $("btnConnect").addEventListener("click", async () => {
   const btn = $("btnConnect");
   btn.disabled = true;
@@ -965,20 +687,17 @@ $("btnConnect").addEventListener("click", async () => {
     return;
   }
 
-  await saveMode();
   const res = await autoConnect({ quiet: false });
   btn.disabled = false;
   if (res?.ok) {
     const form = $("connectForm");
     if (form) delete form.dataset.forceEdit;
-    await autoAdvanced({ register: true });
   }
 });
 
 $("btnReconnect")?.addEventListener("click", async () => {
   $("connectHint").textContent = "Re-checking…";
   await autoConnect({ quiet: false });
-  await autoAdvanced({ register: true });
 });
 
 $("btnEditConnection")?.addEventListener("click", () => {
@@ -996,7 +715,6 @@ $("btnEditConnection")?.addEventListener("click", () => {
 
 $("btnDisconnect")?.addEventListener("click", async () => {
   authOk = false;
-  automationOk = false;
   await chrome.runtime.sendMessage({ type: "disconnectExecutor" });
   if ($("executorApiKey")) {
     $("executorApiKey").value = "";
@@ -1018,96 +736,37 @@ $("btnDisconnect")?.addEventListener("click", async () => {
   await refresh();
 });
 
-$("btnRegisterAutomation").addEventListener("click", async () => {
-  const endpoint = $("publicEndpoint").value.trim();
-  if (endpoint) {
-    await chrome.runtime.sendMessage({
-      type: "saveSecrets",
-      publicEndpoint: endpoint,
-      executorUrl: $("executorUrl").value.trim() || undefined,
-      executorApiKey: $("executorApiKey").value.trim() || undefined,
-    });
-  }
-  $("advancedHint").textContent = "Registering…";
-  const res = await chrome.runtime.sendMessage({
-    type: "registerExecutor",
-    endpoint: endpoint || undefined,
-  });
-  automationOk = Boolean(res?.ok);
-  $("advancedHint").textContent = res?.ok ? "Registered" : res?.error || "Failed";
-  toast(res?.ok ? "Registered" : res?.error || "Failed", res?.ok ? "ok" : "bad");
-  if (!res?.ok) $("advPanel").open = true;
-  await refresh();
-});
-
 $("btnClearActivity").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "clearActivity" });
   await refresh();
 });
 
-document.querySelectorAll('input[name="mode"]').forEach((el) => {
-  el.addEventListener("change", () => saveMode());
-});
-
-// Re-run advanced auto when user expands it
-$("advPanel")?.addEventListener("toggle", () => {
-  if ($("advPanel").open) autoAdvanced({ register: true });
-});
-
 // Auto-connect when user finishes pasting a key
 $("executorApiKey")?.addEventListener("change", () => {
-  autoConnect({ quiet: false }).then((r) => {
-    if (r?.ok) autoAdvanced({ register: true });
-  });
+  autoConnect({ quiet: false });
 });
 
 function buildAgentPrompt(settings) {
   const s = settings || lastStatus?.settings || {};
   const url = s.executorUrl || LAB_CANDIDATES[0];
   const mcp = (url || "").replace(/\/$/, "") + "/mcp";
-  const publicMcp =
-    s.publicEndpoint ||
-    $("publicEndpoint")?.value?.trim() ||
-    null;
   const tabN = lastStatus?.tabs?.length || 0;
   const group = s.groupTitle || "Executor";
-  const driveMode = lastStatus?.driveMode || s.driveMode || "reverse";
   const rev = lastStatus?.reverse || {};
-  const nativeOn = Boolean(lastStatus?.native?.connected);
-  const companionReg = Boolean(s.chromeRegistered && publicMcp);
 
-  if (driveMode === "reverse" && rev.mode === "reverse") {
+  if (rev.mode === "reverse") {
     return [
-      "Executor CONNECTED. Browser drive path B (extension reverse) is enabled.",
+      "Executor CONNECTED. Browser reverse bridge is enabled.",
       "",
       `Executor MCP: ${mcp}`,
-      "Chrome tools: extension-native (tabs, navigate, snapshot, click, type, screenshot).",
-      "Reverse bridge session is live; use tools.browser.user.desktop when Executor routes to this session.",
+      "Chrome tools: tools.browser.user.desktop (tabs, navigate, snapshot, click, type, screenshot).",
+      "Reverse session is live for this extension.",
       "",
       "How to use:",
       "- Prefer snapshot (a11y-ish) over screenshots.",
-      `- Prefer tab group “${group}”${tabN ? ` (${tabN} open)` : ""}.`,
+      `- Only tabs in group “${group}”${tabN ? ` (${tabN} open)` : ""} are controllable.`,
       "- Normal http(s) pages only; not chrome://.",
       "- On tool error, report it — do not invent DOM state.",
-    ].join("\n");
-  }
-
-  if (nativeOn) {
-    return [
-      "Executor CONNECTED. Browser drive path C (native host) is connected.",
-      `Executor MCP: ${mcp}`,
-      "Use full CDP chrome tools via the native host when available.",
-      `- Prefer tab group “${group}”. Prefer snapshot over screenshots.`,
-    ].join("\n");
-  }
-
-  if (companionReg) {
-    return [
-      "Browser control ON via legacy companion MCP.",
-      `Executor MCP: ${mcp}`,
-      `Chrome tools: tools.chrome.user.desktop @ ${publicMcp}`,
-      "- Prefer take_snapshot. No performance traces unless asked.",
-      `- Tab group “${group}”${tabN ? ` (${tabN} open)` : ""}.`,
     ].join("\n");
   }
 
@@ -1116,12 +775,11 @@ function buildAgentPrompt(settings) {
     `Executor MCP: ${mcp}`,
     "Use Executor tools for this session.",
     "",
-    "Browser drive: not fully routed for remote tools.chrome.* yet.",
-    "- Path B (default): extension reverse — enable on Connect after auth.",
-    "- Path C: Advanced → native host (one-time binary install).",
-    "- Legacy: companion :9230 under Advanced.",
-    `- Tab group “${group}” is local UX until a drive path is active.`,
-    "Do not invent page state. Ask user to Enable drive if browser work is required.",
+    rev.mode === "unsupported"
+      ? "Browser reverse API missing on this Executor — upgrade host browser-bridge."
+      : "Browser reverse: reconnect the extension side panel if tools.browser.user.desktop is unavailable.",
+    `- Tab group “${group}”${tabN ? ` (${tabN} open)` : ""}.`,
+    "Do not invent page state.",
   ].join("\n");
 }
 
@@ -1143,34 +801,12 @@ $("btnCopyAgentPrompt")?.addEventListener("click", async () => {
 
 $("btnGoConnect")?.addEventListener("click", () => selectTab("connect"));
 
-document.querySelectorAll("[data-drive]").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    const driveMode = btn.dataset.drive;
-    await chrome.runtime.sendMessage({ type: "setDriveMode", driveMode });
-    if (driveMode === "companion") $("advPanel").open = true;
-    if (driveMode === "native") $("advPanel").open = true;
-    toast(`Drive mode: ${driveMode}`);
-    await refresh();
-  });
-});
-
 $("btnStartDrive")?.addEventListener("click", async () => {
-  const mode = lastStatus?.driveMode || "reverse";
-  if (mode === "native") {
-    const r = await chrome.runtime.sendMessage({ type: "connectNativeHost" });
-    toast(r?.connected ? "Native host up" : r?.lastError || "Host missing", r?.connected ? "ok" : "bad");
-  } else if (mode === "companion") {
-    $("advPanel").open = true;
-    toast("Use Advanced → Register for companion");
-  } else {
-    const r = await chrome.runtime.sendMessage({ type: "startReverseBridge" });
-    toast(
-      r?.mode === "reverse"
-        ? "Reverse session live"
-        : r?.lastError || "Bridge failed",
-      r?.mode === "error" ? "bad" : "ok",
-    );
-  }
+  const r = await chrome.runtime.sendMessage({ type: "startReverseBridge" });
+  toast(
+    r?.mode === "reverse" ? "Reverse session live" : r?.lastError || "Bridge failed",
+    r?.mode === "error" || r?.mode === "unsupported" ? "bad" : "ok",
+  );
   await refresh();
 });
 
@@ -1179,30 +815,10 @@ $("btnPingDrive")?.addEventListener("click", async () => {
   toast(r?.ok ? `Ping ok · ${r.mode || "tools"}` : r?.error || "Ping failed", r?.ok ? "ok" : "bad");
 });
 
-$("btnConnectNative")?.addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({ type: "setDriveMode", driveMode: "native" });
-  const r = await chrome.runtime.sendMessage({ type: "connectNativeHost" });
-  toast(r?.connected ? "Native host connected" : r?.lastError || "Not installed", r?.connected ? "ok" : "bad");
-  await refresh();
-});
-
-$("btnNativeInfo")?.addEventListener("click", async () => {
-  const r = await chrome.runtime.sendMessage({ type: "nativeHostInfo" });
-  const text = JSON.stringify(r?.manifestExample || r, null, 2);
-  try {
-    await navigator.clipboard.writeText(text);
-    toast("Host manifest template copied");
-  } catch {
-    toast(text.slice(0, 80), "ok");
-  }
-});
-
 $("btnSaveAdvanced")?.addEventListener("click", async () => {
   await chrome.runtime.sendMessage({
     type: "saveSettings",
     settings: {
-      companionHealthUrl: $("healthUrl")?.value.trim() || undefined,
-      companionMcpUrl: $("mcpUrl")?.value.trim() || undefined,
       groupTitle: $("groupTitle")?.value.trim() || "Executor",
     },
   });
@@ -1211,7 +827,7 @@ $("btnSaveAdvanced")?.addEventListener("click", async () => {
   await refresh();
 });
 
-// Boot: detect → auto-connect → advanced auto-find
+// Boot: detect → auto-connect
 (async () => {
   $("headerStatus").textContent = "Connecting…";
   await refresh();
@@ -1231,33 +847,20 @@ $("btnSaveAdvanced")?.addEventListener("click", async () => {
   }
 
   const s = lastStatus?.settings;
-  if ($("healthUrl")) $("healthUrl").value = s?.companionHealthUrl || "http://127.0.0.1:9230/healthz";
-  if ($("mcpUrl")) $("mcpUrl").value = s?.companionMcpUrl || "http://127.0.0.1:9230/mcp";
   if ($("groupTitle")) $("groupTitle").value = s?.groupTitle || "Executor";
 
-  // Auto-connect whenever a key is already stored
   if (s?.hasApiKey) {
     await autoConnect({ quiet: true });
   }
 
-  // Below-fold: probe companion / TS / register if possible
-  await autoAdvanced({ register: Boolean(authOk) });
-
   fillAgentPrompt(lastStatus?.settings);
   bootDone = true;
-  // One soft preview after boot settles — never burst with open-tab / retries
   setTimeout(() => capture({ focus: false, soft: true }), 1800);
 })();
 
 setInterval(async () => {
   await refresh();
-  // Soft re-auth if we thought we were connected but reach died
   if (lastStatus?.settings?.hasApiKey && !authOk && lastStatus?.executor?.ok) {
     await autoConnect({ quiet: true });
-  }
-  // Soft re-check companion
-  if (authOk) {
-    const c = lastStatus?.companion;
-    if (c?.ok && !automationOk) await autoAdvanced({ register: true });
   }
 }, 15000);
