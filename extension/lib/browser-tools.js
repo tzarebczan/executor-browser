@@ -6,7 +6,9 @@
 import {
   ACCESS_CODES,
   BrowserAccessError,
+  accessAdvertisement,
   assertToolAccess,
+  endControlSession,
   getAccessState,
   hostAllowed,
 } from "./access-policy.js";
@@ -707,6 +709,25 @@ export async function runBrowserTool(tool, args = {}) {
 async function dispatchBrowserTool(tool, args = {}) {
   const name = String(tool || "").replace(/^tools\.chrome\.(user\.)?desktop\./, "");
   const tabId = args.tabId ?? args.tab_id ?? null;
+
+  // Answered before the access gate below, deliberately. Both are about the
+  // session rather than about the page: reading its state and ending it stay
+  // available exactly when access is paused, which is when someone is most
+  // likely to be asking what happened.
+  //
+  // There is no counterpart that starts a session. That is granted here, by the
+  // person, and a tool that did it would let an agent award itself the reach
+  // this step exists to withhold.
+  if (name === "session.status" || name === "session_status") {
+    return { ok: true, ...(await accessAdvertisement()) };
+  }
+  if (name === "session.stop" || name === "session_stop") {
+    await endControlSession();
+    // Reported as stopped whether or not one was running: nothing running is
+    // the state the caller asked for.
+    return { ok: true, stopped: true };
+  }
+
   const access = await getAccessState();
   if (access.settings.accessMode === "full" && !access.sessionActive && name !== "ping") {
     return {
@@ -834,6 +855,7 @@ async function dispatchBrowserTool(tool, args = {}) {
 }
 
 export const BROWSER_TOOL_NAMES = Object.freeze([
+  "session.status", "session.stop",
   "ping", "tabs.list", "tabs.open", "tabs.activate", "tabs.close", "navigate", "back", "forward", "reload",
   "snapshot", "find", "wait", "click", "dblclick", "hover", "focus", "type", "press", "select", "check", "scroll",
   "screenshot", "upload", "downloads.list", "dialog.handle", "console.list", "network.list", "evaluate", "pdf", "viewport.set",

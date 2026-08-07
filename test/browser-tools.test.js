@@ -122,6 +122,31 @@ function completeNavigation(tabId, url) {
   for (const listener of [...state.tabListeners]) listener(tabId, { status: "complete" });
 }
 
+test("offers no tool that starts a control session", async () => {
+  // The control session is what gives an agent reach over a browser signed in
+  // to the user's own accounts. It is granted here, by the person. A tool that
+  // started one would let an agent award itself the access this step exists to
+  // withhold.
+  const { BROWSER_TOOL_NAMES } = await import("../extension/lib/browser-tools.js");
+  assert.ok(!BROWSER_TOOL_NAMES.some((name) => /session[._]start/i.test(name)));
+  const result = await runBrowserTool("session.start", {});
+  assert.equal(result.ok, false);
+});
+
+test("reports and ends a control session even while access is paused", async () => {
+  // Paused access is exactly when someone asks what happened, so the two tools
+  // that observe and de-escalate must still answer.
+  state.settings = { groupTitle: "Executor", accessMode: "full" };
+
+  const status = await runBrowserTool("session.status", {});
+  assert.equal(status.ok, true);
+  assert.equal(status.mode, "full");
+  assert.equal(status.sessionActive, false);
+
+  const stopped = await runBrowserTool("session.stop", {});
+  assert.deepEqual(stopped, { ok: true, stopped: true });
+});
+
 test("opening a tab reports where it landed, not an empty URL", async () => {
   // chrome.tabs.create resolves before the navigation commits, so returning
   // tab.url straight back handed the caller an empty string to verify against.
