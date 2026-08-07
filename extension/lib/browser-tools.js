@@ -1,15 +1,35 @@
 /**
  * Extension browser tools (reverse bridge).
- * Uses chrome.tabs / scripting / captureVisibleTab — Executor group only.
+ * Uses chrome.tabs / scripting / captureVisibleTab, Executor group only.
  */
 
-import { assertToolAccess, getAccessState, hostAllowed } from "./access-policy.js";
+import {
+  ACCESS_CODES,
+  BrowserAccessError,
+  assertToolAccess,
+  getAccessState,
+  hostAllowed,
+} from "./access-policy.js";
 import { runCdpTool } from "./cdp-tools.js";
+import { redactUrl } from "./redact.js";
+
+/**
+ * Failure codes shared with Executor's `BROWSER_ERROR_CODES`.
+ *
+ * The access codes come from the policy module so a refusal keeps saying which
+ * limit stopped it; everything else that fails is tagged here.
+ */
+export const TOOL_CODES = Object.freeze({
+  ...ACCESS_CODES,
+  noTab: "NO_TARGET_TAB",
+  unsupported: "TOOL_NOT_SUPPORTED",
+  failed: "TOOL_FAILED",
+});
 
 const GROUP_TITLE_DEFAULT = "Executor";
 const GROUP_STORAGE_KEY = "executorAgentGroupId";
 const GROUP_MIGRATION_KEY = "executorAgentGroupMigrated";
-/** tabId → { url, nodes } — invalidated on navigate / URL change / size cap */
+/** tabId → { url, nodes }, invalidated on navigate / URL change / size cap */
 const snapshotHandles = new Map();
 const SNAPSHOT_HANDLE_MAX = 24;
 
@@ -96,21 +116,34 @@ export async function ensureAgentTabGroup(tabIds) {
   return groupId ?? null;
 }
 
-async function resolveTab(tabId) {
+/**
+ * Resolve the tab a tool should act on and authorize it.
+ *
+ * Returns null only when there is genuinely no candidate tab. A tab that
+ * exists but is out of scope raises BrowserAccessError, so a refusal is never
+ * reported as a missing target.
+ */
+async function resolveTab(tabId, tool) {
   const groupId = await getOwnedGroupId();
+  let candidate = null;
   if (tabId != null) {
     try {
-      const tab = await chrome.tabs.get(Number(tabId));
-      await assertToolAccess({ tab, groupId });
-      return tab;
+      candidate = await chrome.tabs.get(Number(tabId));
+    } catch {
+      return null;
+    }
+  } else {
+    const agent = await listAgentTabs();
+    const preferred = agent.find((t) => t.active) || agent[0];
+    if (!preferred) return null;
+    try {
+      candidate = await chrome.tabs.get(preferred.id);
     } catch {
       return null;
     }
   }
-  const agent = await listAgentTabs();
-  const preferred = agent.find((t) => t.active) || agent[0];
-  if (preferred) return chrome.tabs.get(preferred.id);
-  return null;
+  await assertToolAccess({ tool, tab: candidate, groupId });
+  return candidate;
 }
 
 function isRestrictedUrl(url = "") {
@@ -120,7 +153,7 @@ function isRestrictedUrl(url = "") {
 /** Simplified a11y-ish snapshot via DOM walk in page. */
 async function takeSnapshot(tabId, options = {}) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No tab" };
+  if (!tab?.id) return { ok: false, error: "No tab", code: TOOL_CODES.noTab };
   if (isRestrictedUrl(tab.url)) {
     return { ok: false, error: "Can't snapshot browser chrome pages", tab: { id: tab.id, url: tab.url } };
   }
@@ -216,7 +249,7 @@ async function takeSnapshot(tabId, options = {}) {
 
 async function clickAt(tabId, { x, y, selector, nodeIndex, frameId } = {}) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No Executor-group tab" };
+  if (!tab?.id) return { ok: false, error: "No Executor-group tab", code: TOOL_CODES.noTab };
   if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
 
   if (!selector && x == null && y == null && nodeIndex != null) {
@@ -234,6 +267,7 @@ async function clickAt(tabId, { x, y, selector, nodeIndex, frameId } = {}) {
     frameId = handle.frameId;
   }
 
+  const settle = watchNavigation(tab.id);
   const [{ result }] = await chrome.scripting.executeScript({
     target: frameId == null ? { tabId: tab.id } : { tabId: tab.id, frameIds: [frameId] },
     args: [{ x, y, selector }],
@@ -254,12 +288,21 @@ async function clickAt(tabId, { x, y, selector, nodeIndex, frameId } = {}) {
       };
     },
   });
-  return { ...result, tabId: tab.id };
+  const navigated = await settle();
+  // Node coordinates belong to the page they were captured on, so a navigation
+  // retires them rather than letting a later nodeIndex land somewhere else.
+  if (navigated) clearSnapshotHandle(tab.id);
+  return {
+    ...result,
+    tabId: tab.id,
+    url: await settledUrl(tab.id, tab.url),
+    ...(navigated ? { navigated: true } : {}),
+  };
 }
 
 async function typeText(tabId, { text, selector, submit } = {}) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No Executor-group tab" };
+  if (!tab?.id) return { ok: false, error: "No Executor-group tab", code: TOOL_CODES.noTab };
   if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
   if (text == null) return { ok: false, error: "text required" };
 
@@ -275,7 +318,7 @@ async function typeText(tabId, { text, selector, submit } = {}) {
           document.querySelector("input:focus, textarea:focus, [contenteditable=true]:focus") ||
           document.querySelector("input:not([type=hidden]), textarea, [contenteditable=true]");
       }
-      if (!el) return { ok: false, error: "No input focused — click a field first" };
+      if (!el) return { ok: false, error: "No input focused, click a field first" };
       el.focus();
       if ("value" in el) {
         el.value = opts.text;
@@ -300,6 +343,62 @@ async function typeText(tabId, { text, selector, submit } = {}) {
   return { ...result, tabId: tab.id };
 }
 
+/**
+ * How long a navigation has to start before an action counts as one that did
+ * not navigate, and how long to then wait for the page to finish loading.
+ *
+ * Split so an ordinary click does not pay for the answer. Only once Chrome has
+ * reported the tab loading is the longer budget spent.
+ */
+const NAV_COMMIT_MS = 400;
+const NAV_SETTLE_MS = 15000;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Run an action and wait for any navigation it starts.
+ *
+ * The listener is attached before the action, because a click that follows a
+ * link can have the tab loading before `executeScript` resolves. Attaching
+ * afterwards misses that entirely.
+ *
+ * Without this a click returned while the old page was still on screen, so the
+ * next call read the URL the tab was leaving rather than the one it was going
+ * to, and reported the click as having done nothing.
+ */
+function watchNavigation(tabId) {
+  let started = false;
+  let finished = false;
+  const listener = (id, changeInfo) => {
+    if (id !== tabId) return;
+    if (changeInfo.url || changeInfo.status === "loading") started = true;
+    if (changeInfo.status === "complete") finished = true;
+  };
+  chrome.tabs.onUpdated.addListener(listener);
+  return async () => {
+    try {
+      const commitBy = Date.now() + NAV_COMMIT_MS;
+      while (!started && Date.now() < commitBy) await delay(20);
+      if (!started) return false;
+      const settleBy = Date.now() + NAV_SETTLE_MS;
+      while (!finished && Date.now() < settleBy) await delay(25);
+      return true;
+    } finally {
+      chrome.tabs.onUpdated.removeListener(listener);
+    }
+  };
+}
+
+/** The tab's real URL now, rather than the one it was asked to go to. */
+async function settledUrl(tabId, fallback) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return tab?.url || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function navigate(tabId, { url, newTab, active = true } = {}) {
   if (!url) return { ok: false, error: "url required" };
   try {
@@ -315,33 +414,69 @@ async function navigate(tabId, { url, newTab, active = true } = {}) {
     access.settings.accessMode === "limited" &&
     !hostAllowed(url, access.settings.allowedHosts)
   ) {
-    return { ok: false, error: `Host is outside the configured access scope: ${url}` };
+    return {
+      ok: false,
+      error: `Host is outside the configured access scope: ${url}`,
+      code: TOOL_CODES.hostNotAllowed,
+    };
   }
+  // A created tab has no URL yet: Chrome resolves `create` before the
+  // navigation commits, so reading `tab.url` straight back returned an empty
+  // string and the caller had nothing to verify against.
   if (newTab) {
     const tab = await chrome.tabs.create({ url, active });
     await ensureAgentTabGroup([tab.id]);
     clearSnapshotHandle(tab.id);
-    return { ok: true, tab: { id: tab.id, url: tab.url } };
+    await settleTab(tab.id);
+    return { ok: true, tab: { id: tab.id, url: await settledUrl(tab.id, url) } };
   }
   const tab = await resolveTab(tabId);
   if (!tab?.id) {
     const created = await chrome.tabs.create({ url, active: true });
     await ensureAgentTabGroup([created.id]);
     clearSnapshotHandle(created.id);
-    return { ok: true, tab: { id: created.id, url } };
+    await settleTab(created.id);
+    return { ok: true, tab: { id: created.id, url: await settledUrl(created.id, url) } };
   }
   clearSnapshotHandle(tab.id);
+  // The requested URL was reported before the tab had gone anywhere, which
+  // reads as a completed navigation to a caller about to snapshot.
+  const settle = watchNavigation(tab.id);
   await chrome.tabs.update(tab.id, { url });
-  return { ok: true, tab: { id: tab.id, url } };
+  const navigated = await settle();
+  return {
+    ok: true,
+    tab: { id: tab.id, url: navigated ? await settledUrl(tab.id, url) : url },
+  };
 }
 
-/** Chrome MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND — space agent screenshots too. */
+/** Wait for a tab that is already on its way to finish loading. */
+async function settleTab(tabId) {
+  let finished = false;
+  const listener = (id, changeInfo) => {
+    if (id === tabId && changeInfo.status === "complete") finished = true;
+  };
+  chrome.tabs.onUpdated.addListener(listener);
+  try {
+    const settleBy = Date.now() + NAV_SETTLE_MS;
+    while (!finished && Date.now() < settleBy) {
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tab) return;
+      if (tab.status === "complete" && tab.url) return;
+      await delay(25);
+    }
+  } finally {
+    chrome.tabs.onUpdated.removeListener(listener);
+  }
+}
+
+/** Chrome MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND, space agent screenshots too. */
 let lastToolCaptureAt = 0;
 const TOOL_CAPTURE_GAP_MS = 1100;
 
 async function screenshot(tabId) {
   const tab = await resolveTab(tabId);
-  if (!tab?.windowId) return { ok: false, error: "No tab window" };
+  if (!tab?.windowId) return { ok: false, error: "No tab window", code: TOOL_CODES.noTab };
   if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
   if (tab.id) await chrome.tabs.update(tab.id, { active: true });
   const wait = Math.max(0, TOOL_CAPTURE_GAP_MS - (Date.now() - lastToolCaptureAt));
@@ -414,7 +549,7 @@ function targetFromSnapshot(tab, args) {
 
 async function domAction(tabId, action, args = {}) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No controllable tab" };
+  if (!tab?.id) return { ok: false, error: "No controllable tab", code: TOOL_CODES.noTab };
   if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
   let target;
   try {
@@ -423,6 +558,10 @@ async function domAction(tabId, action, args = {}) {
     return { ok: false, error: String(error?.message || error) };
   }
   const scriptTarget = target.frameId == null ? { tabId: tab.id } : { tabId: tab.id, frameIds: [target.frameId] };
+  // Enter submits a form and a double-click can follow a link, so these two
+  // navigate as readily as a click does. The rest cannot, and are not made to
+  // wait to establish it.
+  const settle = action === "press" || action === "dblclick" ? watchNavigation(tab.id) : null;
   const [{ result }] = await chrome.scripting.executeScript({
     target: scriptTarget,
     args: [action, target],
@@ -489,12 +628,14 @@ async function domAction(tabId, action, args = {}) {
       return { ok: true, tag: el?.tagName?.toLowerCase() };
     },
   });
-  return { ...result, tabId: tab.id, ...(action === "select" ? { values: args.values } : {}), ...(action === "check" ? { checked: args.checked } : {}), ...(action === "upload" ? { files: args.files.map((file) => file.name) } : {}) };
+  const navigated = settle ? await settle() : false;
+  if (navigated) clearSnapshotHandle(tab.id);
+  return { ...result, tabId: tab.id, ...(settle ? { url: await settledUrl(tab.id, tab.url) } : {}), ...(navigated ? { navigated: true } : {}), ...(action === "select" ? { values: args.values } : {}), ...(action === "check" ? { checked: args.checked } : {}), ...(action === "upload" ? { files: args.files.map((file) => file.name) } : {}) };
 }
 
 async function historyAction(tabId, action, args = {}) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No controllable tab" };
+  if (!tab?.id) return { ok: false, error: "No controllable tab", code: TOOL_CODES.noTab };
   if (isRestrictedUrl(tab.url)) return { ok: false, error: "Restricted URL" };
   if (action === "back") await chrome.tabs.goBack(tab.id);
   else if (action === "forward") await chrome.tabs.goForward(tab.id);
@@ -521,7 +662,7 @@ async function waitFor(tabId, args = {}) {
   const timeoutMs = Math.min(120_000, Math.max(100, Number(args.timeoutMs) || 10_000));
   while (Date.now() - startedAt < timeoutMs) {
     const tab = await resolveTab(tabId);
-    if (!tab?.id) return { ok: false, error: "No controllable tab" };
+    if (!tab?.id) return { ok: false, error: "No controllable tab", code: TOOL_CODES.noTab };
     const urlMatched = !args.url || String(tab.url || "").includes(args.url);
     const found = args.selector || args.text ? await findElements(tab.id, args) : { ok: true, matches: [{}] };
     const present = Boolean(found.ok && found.matches?.length);
@@ -534,7 +675,7 @@ async function waitFor(tabId, args = {}) {
 
 async function runAdvanced(tool, tabId, args) {
   const tab = await resolveTab(tabId);
-  if (!tab?.id) return { ok: false, error: "No controllable tab" };
+  if (!tab?.id) return { ok: false, error: "No controllable tab", code: TOOL_CODES.noTab };
   const groupId = await getOwnedGroupId();
   await assertToolAccess({ tool, tab, groupId, advanced: true });
   const result = await runCdpTool(tool, tab.id, args);
@@ -547,6 +688,23 @@ async function runAdvanced(tool, tabId, args) {
  * @param {object} args
  */
 export async function runBrowserTool(tool, args = {}) {
+  try {
+    const result = await dispatchBrowserTool(tool, args);
+    // Every failure leaves here with a code. An agent deciding whether to
+    // retry, ask for wider access, or stop cannot get that from prose, and
+    // prose is the thing most likely to be reworded later.
+    return result && result.ok === false && !result.code
+      ? { ...result, code: TOOL_CODES.failed }
+      : result;
+  } catch (error) {
+    if (error instanceof BrowserAccessError) {
+      return { ok: false, error: error.message, code: error.code };
+    }
+    return { ok: false, error: String(error?.message || error), code: TOOL_CODES.failed };
+  }
+}
+
+async function dispatchBrowserTool(tool, args = {}) {
   const name = String(tool || "").replace(/^tools\.chrome\.(user\.)?desktop\./, "");
   const tabId = args.tabId ?? args.tab_id ?? null;
   const access = await getAccessState();
@@ -554,7 +712,7 @@ export async function runBrowserTool(tool, args = {}) {
     return {
       ok: false,
       error: "Full access is paused. Start a control session in Executor Browser.",
-      code: "CONTROL_SESSION_REQUIRED",
+      code: ACCESS_CODES.sessionRequired,
     };
   }
 
@@ -576,14 +734,14 @@ export async function runBrowserTool(tool, args = {}) {
 
     case "tabs.activate": {
       const tab = await resolveTab(tabId);
-      if (!tab?.id) return { ok: false, error: "No controllable tab" };
+      if (!tab?.id) return { ok: false, error: "No controllable tab", code: TOOL_CODES.noTab };
       const updated = await chrome.tabs.update(tab.id, { active: true });
       return { ok: true, tab: { id: updated.id, url: updated.url, title: updated.title } };
     }
 
     case "tabs.close": {
       const tab = await resolveTab(tabId);
-      if (!tab?.id) return { ok: false, error: "No controllable tab" };
+      if (!tab?.id) return { ok: false, error: "No controllable tab", code: TOOL_CODES.noTab };
       await chrome.tabs.remove(tab.id);
       clearSnapshotHandle(tab.id);
       return { ok: true, tabId: tab.id };
@@ -636,16 +794,20 @@ export async function runBrowserTool(tool, args = {}) {
       });
       return {
         ok: true,
-        downloads: items.map(({ id, url, filename, state, danger, startTime, endTime, bytesReceived, totalBytes }) => ({
-          id,
-          url,
-          filename,
-          state,
-          danger,
-          startTime,
-          endTime,
-          bytesReceived,
-          totalBytes,
+        // Shaped to the protocol's BrowserDownloadEntry: a string id and epoch
+        // ms, so a caller does not get a number here and a string from a remote
+        // target. `url` is reduced to origin + path, like every other URL that
+        // leaves the extension.
+        downloads: items.map((item) => ({
+          id: String(item.id),
+          url: redactUrl(item.url || ""),
+          filename: item.filename,
+          state: item.state,
+          danger: item.danger,
+          startedAt: Date.parse(item.startTime) || 0,
+          ...(item.endTime ? { completedAt: Date.parse(item.endTime) || 0 } : {}),
+          bytes: item.bytesReceived,
+          totalBytes: item.totalBytes,
         })),
       };
     }
@@ -665,6 +827,7 @@ export async function runBrowserTool(tool, args = {}) {
       return {
         ok: false,
         error: `Unknown tool: ${name}`,
+        code: TOOL_CODES.unsupported,
         supported: BROWSER_TOOL_NAMES,
       };
   }
