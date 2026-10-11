@@ -28,7 +28,7 @@ function paintGlance(status) {
 
   if (!settings?.executorUrl && !executor?.ok) {
     state = "checking";
-    text = "Looking on this tailnet…";
+    text = "Looking for Executor…";
   } else if (executor && !executor.ok) {
     state = executor.verdict === "bridge-missing" ? "failed" : "offline";
     text = executor.error || "Executor is not reachable";
@@ -172,14 +172,19 @@ function showFound(candidates) {
 }
 
 $("btnDetect").addEventListener("click", async () => {
-  $("connectHint").textContent = "Looking on this tailnet…";
-  $("glance").textContent = "Looking on this tailnet…";
+  $("connectHint").textContent = "Looking for Executor…";
+  $("glance").textContent = "Looking for Executor…";
   const typed = $("executorUrl").value.trim();
+  const saved = lastStatus?.settings?.executorUrl || "";
   const res = await chrome.runtime.sendMessage({
     type: "detectExecutor",
     candidates: typed ? [typed] : [],
   });
-  if (res?.ok && res.url) {
+  // The saved tailnet name is often just offline. A localhost answer must not
+  // replace it. A different name the user typed, or an empty field, may.
+  const keepSaved =
+    Boolean(saved) && (!typed || typed === saved) && lastStatus?.executor?.verdict === "unreachable";
+  if (res?.ok && res.url && !keepSaved) {
     $("executorUrl").value = res.url;
     $("connectHint").textContent = `Found ${hostLabel(res.url)}`;
     await chrome.runtime.sendMessage({ type: "saveSecrets", executorUrl: res.url });
@@ -189,7 +194,9 @@ $("btnDetect").addEventListener("click", async () => {
     return;
   }
   showFound(res?.tried || []);
-  $("connectHint").textContent = res?.error || "No Executor found. Type the tailnet name.";
+  $("connectHint").textContent = keepSaved
+    ? "Saved address is offline. Pick another only if you mean to switch."
+    : res?.error || "No Executor found. Type the tailnet name.";
   await refresh();
 });
 
@@ -222,11 +229,9 @@ $("btnDisconnect").addEventListener("click", async () => {
 
 $("btnRefresh").addEventListener("click", async () => {
   await refresh();
-  if (!lastStatus?.executor?.ok) {
-    $("btnDetect").click();
-    return;
+  if (lastStatus?.settings?.hasApiKey && lastStatus?.executor?.ok) {
+    await autoConnect({ quiet: true });
   }
-  await autoConnect({ quiet: true });
 });
 
 for (const input of document.querySelectorAll('input[name="cdpMode"]')) {
@@ -262,10 +267,9 @@ $("executorApiKey").addEventListener("change", () => {
 
   await refresh();
   const saved = lastStatus?.settings?.executorUrl;
-  const verdict = lastStatus?.executor?.verdict;
-  // A saved tailnet address that is simply offline must stay. Replacing it
-  // with whatever answers locally is how a dev server used to win.
-  if (!saved || verdict === "bridge-missing" || verdict === "not-executor") {
+  // Search only when nothing is saved. An offline tailnet name, and a host
+  // that answered but has no browser control yet, both stay put.
+  if (!saved) {
     const found = await chrome.runtime.sendMessage({ type: "detectExecutor", candidates: [] });
     if (found?.ok && found.url) {
       $("executorUrl").value = found.url;

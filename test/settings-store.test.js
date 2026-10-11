@@ -119,6 +119,27 @@ test("the log is capped so it cannot grow without bound", async () => {
   assert.equal(activity[0].id, "e84");
 });
 
+test("a legacy checkbox survives a later write that does not mention developer tools", async () => {
+  store[SETTINGS_KEY] = { advancedMode: true, executorUrl: "https://saved.example" };
+
+  await setSettings({ connectionName: "desktop" });
+
+  const settings = await getSettings();
+  assert.equal(settings.cdpMode, "session");
+  assert.equal(settings.advancedMode, true);
+  assert.equal(settings.connectionName, "desktop");
+  assert.equal(store[SETTINGS_KEY].cdpMode, "session");
+});
+
+test("an explicit always-on choice survives saving the address", async () => {
+  await setSettings({ cdpMode: "always" });
+  await setSettings({ executorUrl: "https://saved.example" });
+
+  const settings = await getSettings();
+  assert.equal(settings.cdpMode, "always");
+  assert.equal(settings.advancedMode, true);
+});
+
 test("entries can be removed individually or all at once", async () => {
   await pushActivity({ id: "keep", message: "keep" });
   await pushActivity({ id: "drop", message: "drop" });

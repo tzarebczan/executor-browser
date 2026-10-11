@@ -13,7 +13,7 @@
  * between two concurrent settings writes.
  */
 
-import { ACCESS_DEFAULTS } from "./access-policy.js";
+import { ACCESS_DEFAULTS, normalizeCdpMode } from "./access-policy.js";
 import { modernizeActivity } from "./activity.js";
 
 export const SETTINGS_KEY = "settings";
@@ -54,9 +54,30 @@ function makeWriteQueue() {
 const writeSettings = makeWriteQueue();
 const writeActivity = makeWriteQueue();
 
+/**
+ * `cdpMode` is the stored choice. Defaults include `"off"`, so merging them
+ * before a write would freeze that default over an older install that only
+ * stored `advancedMode: true`. A write that does not mention developer tools
+ * keeps the choice already on disk.
+ */
+function resolveCdpMode(raw, partial) {
+  if (partial?.cdpMode === "always" || partial?.cdpMode === "session" || partial?.cdpMode === "off") {
+    return partial.cdpMode;
+  }
+  if (partial && Object.hasOwn(partial, "advancedMode")) {
+    if (partial.advancedMode === false && raw?.cdpMode !== "always") return "off";
+    if (partial.advancedMode === true && (raw?.cdpMode === undefined || raw?.cdpMode === "off")) {
+      return "session";
+    }
+  }
+  return normalizeCdpMode(raw);
+}
+
 export async function getSettings() {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
-  const merged = { ...DEFAULTS, ...stored[SETTINGS_KEY] };
+  const raw = stored[SETTINGS_KEY] || {};
+  const cdpMode = normalizeCdpMode(raw);
+  const merged = { ...DEFAULTS, ...raw, cdpMode, advancedMode: cdpMode !== "off" };
   // Older installs kept the log here. It is read from its own key now.
   delete merged.activity;
   return merged;
@@ -64,10 +85,19 @@ export async function getSettings() {
 
 export async function setSettings(partial) {
   return writeSettings(async () => {
-    // Re-read inside the queue: a value read before the previous write landed
-    // would take that write back out again.
-    const current = await getSettings();
-    const next = { ...current, ...partial };
+    // Re-read the raw object inside the queue. Reading the merged defaults
+    // would write cdpMode "off" over a legacy checkbox.
+    const stored = await chrome.storage.local.get(SETTINGS_KEY);
+    const raw = { ...(stored[SETTINGS_KEY] || {}) };
+    delete raw.activity;
+    const cdpMode = resolveCdpMode(raw, partial);
+    const next = {
+      ...DEFAULTS,
+      ...raw,
+      ...partial,
+      cdpMode,
+      advancedMode: cdpMode !== "off",
+    };
     delete next.activity;
     await chrome.storage.local.set({ [SETTINGS_KEY]: next });
     return next;

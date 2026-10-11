@@ -269,7 +269,7 @@ async function pollLoop(getSettings, pushActivity, onUseState, generation, pollS
       }
       if (r.status === 404) {
         mode = "unsupported";
-        lastError = "Session expired or bridge removed";
+        lastError = "Executor ended the session.";
         break;
       }
       if (!r.ok) {
