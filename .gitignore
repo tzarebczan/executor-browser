@@ -7,3 +7,6 @@ node_modules/
 *.pem
 .env
 .env.*
+
+# Local agent/session config — not part of the extension.
+.claude/

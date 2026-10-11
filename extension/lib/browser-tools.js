@@ -707,7 +707,7 @@ export async function runBrowserTool(tool, args = {}) {
 }
 
 async function dispatchBrowserTool(tool, args = {}) {
-  const name = String(tool || "").replace(/^tools\.chrome\.(user\.)?desktop\./, "");
+  const name = String(tool || "").replace(/^tools\.(chrome|browser)\.user\.[A-Za-z0-9_$]+\./, "");
   const tabId = args.tabId ?? args.tab_id ?? null;
 
   // Answered before the access gate below, deliberately. Both are about the

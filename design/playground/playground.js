@@ -96,7 +96,7 @@ const CONNECTED_BASE = () => {
   $("headerStatus").textContent = "Connected · reverse";
   connectTab("Connected", "ok");
   setup(null);
-  banner("ok", "Connected", "lab-agents…ts.net:8444 · 12ms");
+  banner("ok", "Connected", "localhost:3000 · 12ms");
   $("connectMatrix").innerHTML = row("ok", "Reachable", "12ms") + row("ok", "Auth", "verified");
   $("connectForm").classList.add("is-collapsed");
   $("connectedActions").hidden = false;
@@ -148,16 +148,16 @@ const STATES = {
       led("tabsLed", "live");
       stat("tabStat", "3", "ok");
       $("tabCount").textContent = "3";
-      preview({ shot: true, url: "tbd.jiggytom.com/", title: "EggOn — agents" });
+      preview({ shot: true, url: "example.com/", title: "Example app — agents" });
       feed([
         ["Reverse session live", "2s"],
         ["API key verified", "12s"],
         ["Opened agent tab", "1m"],
       ]);
       tabs([
-        ["EggOn — agents", "tbd.jiggytom.com/"],
-        ["EggOn — runs", "tbd.jiggytom.com/runs"],
-        ["Docs", "docs.jiggytom.com/executor"],
+        ["Example app — agents", "example.com/"],
+        ["Example app — runs", "example.com/runs"],
+        ["Docs", "docs.example.com/executor"],
       ]);
       $("agentMatrixCore").innerHTML =
         row("ok", "Executor", "12ms") + row("ok", "API key", "verified") + row("ok", "Agent tabs", "3");
@@ -182,7 +182,7 @@ const STATES = {
         ],
         ["Connect…"],
       );
-      banner("warn", "Reachable · needs key", "lab-agents…ts.net:8444 · paste personal API key");
+      banner("warn", "Reachable · needs key", "localhost:3000 · paste personal API key");
       $("connectMatrix").innerHTML = row("ok", "Reachable", "18ms") + row("bad", "Auth", "no key");
       $("connectHint").textContent = "";
       preview({
@@ -192,7 +192,7 @@ const STATES = {
         emptyTitle: "Nothing captured",
         emptyHint: "A JPEG for your eyes only — never sent to Executor. Open an agent tab, then Capture.",
       });
-      feed([["Executor found at lab-agents…:8444", "5s"]]);
+      feed([["Executor found at localhost:3000", "5s"]]);
       tabs([]);
       $("agentMatrixCore").innerHTML =
         row("ok", "Executor", "18ms") + row("bad", "API key", "no key") + row("skip", "Agent tabs", "none yet");
@@ -315,7 +315,7 @@ const STATES = {
         ["Capture failed: window minimized", "4s"],
         ["Reverse session live", "1m"],
       ]);
-      tabs([["EggOn — agents", "tbd.jiggytom.com/"]]);
+      tabs([["Example app — agents", "example.com/"]]);
       $("agentMatrixCore").innerHTML =
         row("ok", "Executor", "12ms") + row("ok", "API key", "verified") + row("ok", "Agent tabs", "1");
     },

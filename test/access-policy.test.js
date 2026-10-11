@@ -20,9 +20,8 @@ globalThis.chrome = {
   },
 };
 
-const { assertToolAccess, getAccessState, hostAllowed, startControlSession } = await import(
-  "../extension/lib/access-policy.js"
-);
+const { ACCESS_CODES, assertToolAccess, getAccessState, hostAllowed, startControlSession } =
+  await import("../extension/lib/access-policy.js");
 
 beforeEach(() => {
   settings = { accessMode: "limited", allowedHosts: ["example.com"], sessionMinutes: 30 };
@@ -65,6 +64,25 @@ test("Full mode requires an active expiring session and ignores Limited host sco
   });
 });
 
+test("refusals carry a code so callers can tell denial from a missing tab", async () => {
+  await assert.rejects(
+    assertToolAccess({
+      tool: "snapshot",
+      groupId: 4,
+      tab: { id: 2, groupId: 4, url: "https://elsewhere.test" },
+    }),
+    (error) => error.code === ACCESS_CODES.hostNotAllowed,
+  );
+  await assert.rejects(
+    assertToolAccess({
+      tool: "snapshot",
+      groupId: 4,
+      tab: { id: 2, groupId: 9, url: "https://app.example.com" },
+    }),
+    (error) => error.code === ACCESS_CODES.outsideGroup,
+  );
+});
+
 test("Advanced mode requires both its toggle and a control session", async () => {
   await assert.rejects(
     assertToolAccess({ tool: "evaluate", advanced: true }),
@@ -75,4 +93,13 @@ test("Advanced mode requires both its toggle and a control session", async () =>
     assertToolAccess({ tool: "evaluate", advanced: true }),
     /Start a control session/,
   );
+});
+
+test("Always-on developer tools do not need an access window", async () => {
+  settings.cdpMode = "always";
+  await assertToolAccess({ tool: "evaluate", advanced: true });
+  const { getAccessState: read } = await import("../extension/lib/access-policy.js");
+  const state = await read();
+  assert.equal(state.settings.cdpMode, "always");
+  assert.equal(state.sessionActive, false);
 });

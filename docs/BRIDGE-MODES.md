@@ -8,7 +8,7 @@ Executor Browser supports **one** drive mode:
 |--|--|
 | **Client** | This extension |
 | **Transport** | Authenticated HTTPS long-poll to Executor |
-| **Tools** | `tools.browser.user.desktop.*` via extension `chrome.tabs` / `scripting` |
+| **Tools** | `tools.browser.user.<connection>.*` via extension `chrome.tabs` / `scripting`. One connection per extension instance. |
 | **Local process** | None |
 
 ```text

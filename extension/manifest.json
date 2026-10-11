@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Executor Browser",
-  "version": "0.11.2",
-  "description": "Connect Chrome to Executor over Tailscale. Reverse browser bridge for tools.browser.user.desktop.",
+  "version": "0.12.0",
+  "description": "Connect this browser to Executor over Tailscale so an agent can drive it. Developer tools can stay on.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
