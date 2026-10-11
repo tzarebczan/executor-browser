@@ -1,3 +1,5 @@
+import { redactText, redactUrl } from "./redact.js";
+
 const attachedTabs = new Set();
 const consoleByTab = new Map();
 const networkByTab = new Map();
@@ -38,22 +40,30 @@ chrome.debugger?.onEvent?.addListener((source, method, params) => {
   if (method === "Runtime.consoleAPICalled") {
     append(consoleByTab, tabId, {
       level: params.type,
-      text: (params.args || []).map((arg) => arg.value ?? arg.description ?? arg.type).join(" ").slice(0, 2000),
+      text: redactText(
+        (params.args || []).map((arg) => arg.value ?? arg.description ?? arg.type).join(" "),
+      ),
       timestamp: params.timestamp,
+      tabId,
     });
   } else if (method === "Log.entryAdded") {
     append(consoleByTab, tabId, {
       level: params.entry?.level,
-      text: String(params.entry?.text || "").slice(0, 2000),
+      text: redactText(params.entry?.text),
       timestamp: params.entry?.timestamp,
+      tabId,
     });
   } else if (method === "Network.requestWillBeSent") {
     append(networkByTab, tabId, {
       requestId: params.requestId,
       method: params.request?.method,
-      url: params.request?.url,
-      type: params.type,
+      url: redactUrl(params.request?.url),
+      // `resourceType` and `tabId` are what the protocol declares; CDP calls
+      // the first one `type`, and a consumer reading the declared shape got
+      // undefined for both.
+      resourceType: params.type,
       timestamp: params.timestamp,
+      tabId,
     });
   } else if (method === "Network.responseReceived") {
     const items = networkByTab.get(tabId) || [];
@@ -63,7 +73,7 @@ chrome.debugger?.onEvent?.addListener((source, method, params) => {
       request.mimeType = params.response?.mimeType;
     }
   } else if (method === "Page.javascriptDialogOpening") {
-    dialogByTab.set(tabId, { type: params.type, message: String(params.message || "").slice(0, 500) });
+    dialogByTab.set(tabId, { type: params.type, message: redactText(params.message, 500) });
   } else if (method === "Page.javascriptDialogClosed") {
     dialogByTab.delete(tabId);
   }

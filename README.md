@@ -4,12 +4,12 @@ Chrome MV3 **side panel** that pairs this browser with **Executor** over Tailsca
 
 ## What it does
 
-1. **Connect** — Executor base URL + personal API key (Bearer MCP).
-2. **Reverse bridge** — extension long-polls Executor for browser tool jobs and posts results.
-3. **Scoped control** — Executor tabs is the default and supports an optional site allowlist; All Chrome tabs is an explicit expiring access window.
-4. **Local preview** — Capture is a JPEG for the human UI only (not sent to Executor).
+1. **Find Executor** on this machine or the tailnet (a bare hostname is enough) and connect with an API key.
+2. **Show one status line.** Connected, looking, or what to fix.
+3. **Developer tools**, off, for a 30 minute window, or always on.
+4. Agents drive this browser through Executor. The panel does not preview pages or manage a tab list.
 
-Agents use **`tools.browser.user.desktop.*`** for typed tab, navigation, inspection, interaction, file, screenshot, console, network, and CDP operations. There is no companion process or native messaging host: Advanced mode uses `chrome.debugger` in the extension and the existing reverse bridge over Executor/Tailscale.
+Agents use **`tools.browser.user.<connection>.*`** for typed tab, navigation, inspection, interaction, file, screenshot, console, network, and CDP operations. The first unlabeled Chrome stays `desktop`. A second browser (Brave, Edge, another Chrome profile) gets its own connection name so agents can tell them apart — call `status` to list live local browsers. There is no companion process or native messaging host: Advanced mode uses `chrome.debugger` in the extension and the existing reverse bridge over Executor/Tailscale.
 
 ## Install
 
@@ -21,7 +21,7 @@ Agents use **`tools.browser.user.desktop.*`** for typed tab, navigation, inspect
 ## Architecture (short)
 
 ```text
-Agent  →  tools.browser.user.desktop  →  Executor browser-bridge
+Agent  →  tools.browser.user.<connection>  →  Executor browser-bridge
                                               │
 Extension ←── long-poll jobs / POST results ──┘
     │
@@ -40,4 +40,7 @@ Reload the unpacked extension after edits.
 
 ## Version
 
-See `extension/manifest.json` (currently **0.10.0** — scoped sessions and typed browser surface).
+`extension/manifest.json` is the only place the version is written. The side
+panel footer reads it from the manifest at runtime; this file deliberately does
+not repeat the number, because the copy that used to live here had already
+fallen two releases behind.

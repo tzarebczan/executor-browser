@@ -6,17 +6,21 @@ const state = {
   storedGroupId: 11,
   groupMigrated: true,
   tabs: new Map(),
+  tabListeners: new Set(),
+  pendingCreate: null,
   executeScript: null,
   captureDataUrl: "data:image/jpeg;base64,full-image-data",
+  settings: { groupTitle: "Executor" },
 };
 
 globalThis.chrome = {
   storage: {
     local: {
       async get(key) {
-        if (key === "settings") return { settings: { groupTitle: "Executor" } };
+        if (key === "settings") return { settings: state.settings };
         if (Array.isArray(key)) {
           return {
+            settings: state.settings,
             ...(state.storedGroupId != null
               ? { executorAgentGroupId: state.storedGroupId }
               : {}),
@@ -60,9 +64,12 @@ globalThis.chrome = {
     async group() {
       return state.groupId ?? 11;
     },
-    async create({ url, active }) {
-      const tab = { id: 20, groupId: -1, windowId: 1, url, active };
+    // Chrome resolves `create` before the navigation commits, so a new tab has
+    // no URL yet and reports itself as still loading.
+    async create({ active }) {
+      const tab = { id: 20, groupId: -1, windowId: 1, url: "", status: "loading", active };
       state.tabs.set(tab.id, tab);
+      state.pendingCreate?.(tab);
       return tab;
     },
     async update(tabId, patch) {
@@ -72,6 +79,14 @@ globalThis.chrome = {
     },
     async captureVisibleTab() {
       return state.captureDataUrl;
+    },
+    onUpdated: {
+      addListener(fn) {
+        state.tabListeners.add(fn);
+      },
+      removeListener(fn) {
+        state.tabListeners.delete(fn);
+      },
     },
   },
   scripting: {
@@ -87,13 +102,90 @@ beforeEach(() => {
   state.groupId = 11;
   state.storedGroupId = 11;
   state.groupMigrated = true;
+  state.settings = { groupTitle: "Executor" };
   state.tabs = new Map([
     [1, { id: 1, groupId: 11, windowId: 1, url: "https://example.test", active: true }],
     [7, { id: 7, groupId: 99, windowId: 1, url: "https://private.test", active: false }],
   ]);
+  state.tabListeners = new Set();
+  state.pendingCreate = null;
   state.executeScript = () => {
     throw new Error("unexpected script execution");
   };
+});
+
+/** Chrome reporting a tab committing to a new URL and finishing its load. */
+function completeNavigation(tabId, url) {
+  const tab = state.tabs.get(tabId);
+  if (tab) Object.assign(tab, { url, status: "complete" });
+  for (const listener of [...state.tabListeners]) listener(tabId, { status: "loading", url });
+  for (const listener of [...state.tabListeners]) listener(tabId, { status: "complete" });
+}
+
+test("offers no tool that starts a control session", async () => {
+  // The control session is what gives an agent reach over a browser signed in
+  // to the user's own accounts. It is granted here, by the person. A tool that
+  // started one would let an agent award itself the access this step exists to
+  // withhold.
+  const { BROWSER_TOOL_NAMES } = await import("../extension/lib/browser-tools.js");
+  assert.ok(!BROWSER_TOOL_NAMES.some((name) => /session[._]start/i.test(name)));
+  const result = await runBrowserTool("session.start", {});
+  assert.equal(result.ok, false);
+});
+
+test("reports and ends a control session even while access is paused", async () => {
+  // Paused access is exactly when someone asks what happened, so the two tools
+  // that observe and de-escalate must still answer.
+  state.settings = { groupTitle: "Executor", accessMode: "full" };
+
+  const status = await runBrowserTool("session.status", {});
+  assert.equal(status.ok, true);
+  assert.equal(status.mode, "full");
+  assert.equal(status.sessionActive, false);
+
+  const stopped = await runBrowserTool("session.stop", {});
+  assert.deepEqual(stopped, { ok: true, stopped: true });
+});
+
+test("opening a tab reports where it landed, not an empty URL", async () => {
+  // chrome.tabs.create resolves before the navigation commits, so returning
+  // tab.url straight back handed the caller an empty string to verify against.
+  state.pendingCreate = (tab) => {
+    setTimeout(() => completeNavigation(tab.id, "https://example.test/landed"), 10);
+  };
+
+  const result = await runBrowserTool("tabs.open", { url: "https://example.test/landed" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.tab.url, "https://example.test/landed");
+});
+
+test("a click that navigates reports the new URL and retires the old snapshot", async () => {
+  // The click used to return while the old page was still on screen, so the
+  // next call read the URL the tab was leaving rather than the one it reached.
+  state.executeScript = () => {
+    setTimeout(() => completeNavigation(1, "https://example.test/next"), 10);
+    return [{ result: { ok: true, tag: "a", text: "Learn more" } }];
+  };
+
+  const result = await runBrowserTool("click", { tabId: 1, selector: "a" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.navigated, true);
+  assert.equal(result.url, "https://example.test/next");
+});
+
+test("a click that does not navigate returns promptly and says so", async () => {
+  // Opening a menu must not pay the load budget to establish that nothing
+  // navigated.
+  state.executeScript = () => [{ result: { ok: true, tag: "button", text: "Menu" } }];
+
+  const started = Date.now();
+  const result = await runBrowserTool("click", { tabId: 1, selector: "button" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.navigated, undefined);
+  assert.ok(Date.now() - started < 2000, "a non-navigating click should not wait for a load");
 });
 
 test("rejects an explicit tab outside the extension-owned group", async () => {
@@ -105,6 +197,74 @@ test("does not fall back to a personal active tab when no owned group exists", a
   state.storedGroupId = null;
   const result = await runBrowserTool("snapshot", {});
   assert.equal(result.ok, false);
+});
+
+test("enforces the site allowlist when no tabId is supplied", async () => {
+  // The implicit-active-tab path is how agents normally call these tools, so it
+  // must be authorized exactly like an explicit tabId.
+  state.settings = { groupTitle: "Executor", accessMode: "limited", allowedHosts: ["example.com"] };
+  state.tabs = new Map([
+    [1, { id: 1, groupId: 11, windowId: 1, url: "https://out-of-scope.test/s", active: true }],
+  ]);
+  state.executeScript = () => {
+    throw new Error("must not reach the page on an out-of-scope host");
+  };
+
+  for (const [tool, args] of [
+    ["snapshot", {}],
+    ["click", { selector: "body" }],
+    ["type", { text: "x", selector: "input" }],
+    ["screenshot", {}],
+  ]) {
+    const result = await runBrowserTool(tool, args);
+    assert.equal(result.ok, false, `${tool} must be refused`);
+    assert.equal(result.code, "HOST_NOT_IN_ALLOWLIST", `${tool} must report why`);
+  }
+});
+
+test("a refusal names the host but never the forbidden URL", async () => {
+  // The refused page is by definition one the caller may not see. This message
+  // goes back to the agent AND into activity history, so an out-of-scope OAuth
+  // callback must not hand over its query string on the way out.
+  state.settings = { groupTitle: "Executor", accessMode: "limited", allowedHosts: ["example.com"] };
+  state.tabs = new Map([
+    [
+      1,
+      {
+        id: 1,
+        groupId: 11,
+        windowId: 1,
+        url: "https://bank.test/oauth/callback?code=SUPERSECRET&state=x",
+        active: true,
+      },
+    ],
+  ]);
+
+  const result = await runBrowserTool("snapshot", {});
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "HOST_NOT_IN_ALLOWLIST");
+  assert.doesNotMatch(result.error, /SUPERSECRET/);
+  assert.doesNotMatch(result.error, /oauth\/callback/);
+  assert.match(result.error, /bank\.test/);
+});
+
+test("allows the implicit active tab when it is inside the allowlist", async () => {
+  state.settings = { groupTitle: "Executor", accessMode: "limited", allowedHosts: ["example.test"] };
+  state.tabs = new Map([
+    [1, { id: 1, groupId: 11, windowId: 1, url: "https://app.example.test/ok", active: true }],
+  ]);
+  state.executeScript = () => [
+    { frameId: 0, result: { url: "https://app.example.test/ok", title: "ok", nodes: [] } },
+  ];
+
+  const result = await runBrowserTool("snapshot", {});
+  assert.equal(result.ok, true);
+});
+
+test("reports an out-of-group tab as denied rather than missing", async () => {
+  const result = await runBrowserTool("snapshot", { tabId: 7 });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "TAB_OUTSIDE_EXECUTOR_GROUP");
 });
 
 test("migrates one existing legacy Executor group to owned storage", async () => {

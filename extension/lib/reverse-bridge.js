@@ -1,5 +1,5 @@
 /**
- * Path B — extension reverse channel to Executor.
+ * Path B, extension reverse channel to Executor.
  *
  * Extension dials OUT (same trust model as API key). Executor pushes tool jobs
  * over long-poll or WebSocket when the server supports it.
@@ -16,6 +16,8 @@
 import { runBrowserTool, BROWSER_TOOLS_META } from "./browser-tools.js";
 import { browserActivityEntry, displayActor } from "./activity.js";
 import { accessAdvertisement } from "./access-policy.js";
+import { localToolAddress, reverseClientIdentity } from "./browser-identity.js";
+import { setSettings } from "./settings-store.js";
 
 let running = false;
 let sessionId = null;
@@ -26,9 +28,25 @@ let abort = null;
 let runGeneration = 0;
 let activeUse = null;
 let lastUse = null;
+/** JSON of the access scope Executor was last told about, so the poll can tell when it moved. */
+let advertisedAccess = null;
+/** Catalog connection Executor assigned for this instance. */
+let assignedConnection = null;
+let assignedBrowser = null;
 
 function baseUrl(settings) {
   return (settings.executorUrl || "").replace(/\/$/, "");
+}
+
+/**
+ * Identify this extension to Executor.
+ *
+ * The version is read from the manifest rather than written out here, because
+ * a literal drifts: the MCP handshake and the reverse session had already
+ * disagreed about which version was running.
+ */
+export function clientInfo() {
+  return { name: "executor-browser", version: chrome.runtime.getManifest().version };
 }
 
 async function authHeaders(settings) {
@@ -53,7 +71,58 @@ export function getReverseStatus() {
     transport: "extension-reverse",
     activeUse,
     lastUse,
+    connection: assignedConnection,
+    address: assignedConnection ? localToolAddress(assignedConnection) : null,
+    browser: assignedBrowser,
   };
+}
+
+/**
+ * Re-send what this extension will currently let through.
+ *
+ * Capabilities are advertised when the session opens, but access mode, the
+ * host allowlist, and the control session all change while it stays open.
+ * Executor shows this scope to the user, so a stale advertisement is worse
+ * than none, it describes rules that are no longer the ones being enforced.
+ *
+ * Best-effort by design: a failure here must never disturb the poll loop, and
+ * the next reconnect re-advertises anyway.
+ */
+export async function refreshAdvertisedAccess(getSettings) {
+  if (!sessionId || mode !== "reverse") return false;
+  try {
+    const settings = await getSettings();
+    const base = baseUrl(settings);
+    if (!base) return false;
+    const access = await accessAdvertisement();
+    const r = await fetch(`${base}/api/browser-bridge/session/${encodeURIComponent(sessionId)}`, {
+      method: "PATCH",
+      headers: await authHeaders(settings),
+      body: JSON.stringify({ capabilities: { ...BROWSER_TOOLS_META, access } }),
+    });
+    if (r.ok) advertisedAccess = JSON.stringify(access);
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Re-advertise only when the scope has actually moved.
+ *
+ * Control sessions expire on a timer, so there is no start/stop call to hang a
+ * refresh off, the panel simply starts refusing Advanced work while Executor
+ * still shows the session as running. Called on every poll, so the two agree
+ * within one poll interval at worst, and sends nothing when nothing changed.
+ */
+async function reconcileAdvertisedAccess(getSettings) {
+  try {
+    const next = JSON.stringify(await accessAdvertisement());
+    if (next === advertisedAccess) return false;
+    return await refreshAdvertisedAccess(getSettings);
+  } catch {
+    return false;
+  }
 }
 
 export async function stopReverseBridge() {
@@ -70,6 +139,9 @@ export async function stopReverseBridge() {
   }
   sessionId = null;
   mode = "idle";
+  advertisedAccess = null;
+  assignedConnection = null;
+  assignedBrowser = null;
 }
 
 /**
@@ -97,6 +169,9 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
 
   // 1) Open session
   try {
+    const access = await accessAdvertisement();
+    const identity = await reverseClientIdentity(settings);
+    assignedBrowser = identity.browser;
     const r = await fetch(`${base}/api/browser-bridge/session`, {
       method: "POST",
       headers: await authHeaders(settings),
@@ -104,19 +179,21 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
       body: JSON.stringify({
         kind: "chrome-extension",
         transport: "reverse-longpoll",
-        client: { name: "executor-browser", version: "0.10.1" },
-        capabilities: { ...BROWSER_TOOLS_META, access: await accessAdvertisement() },
-        connection: { integration: "chrome", name: "desktop", owner: "user" },
+        client: identity.client,
+        capabilities: { ...BROWSER_TOOLS_META, access },
+        connection: identity.connection,
       }),
     });
+    // Remember what we just said, so the first poll does not re-send it.
+    advertisedAccess = JSON.stringify(access);
 
     if (r.status === 404 || r.status === 501) {
       mode = "unsupported";
       lastError =
-        "Executor has no browser-bridge API yet — extension tools ready; server path pending";
+        "This Executor cannot accept browser control yet; the extension is ready and waiting on the server";
       await pushActivity?.({
         kind: "bridge",
-        message: "Reverse channel unavailable: server endpoint missing",
+        message: "Agent control unavailable on this Executor",
       });
       running = false;
       return getReverseStatus();
@@ -139,11 +216,18 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
       return getReverseStatus();
     }
 
+    assignedConnection = typeof j.connection === "string" && j.connection
+      ? j.connection
+      : identity.connectionName;
+    if (assignedConnection && assignedConnection !== settings.connectionName) {
+      await setSettings({ connectionName: assignedConnection });
+    }
+
     mode = "reverse";
     lastOkAt = Date.now();
     await pushActivity?.({
       kind: "bridge",
-      message: `Reverse bridge session ${String(sessionId).slice(0, 8)}…`,
+      message: "Agent control connected",
     });
   } catch (e) {
     if (controller.signal.aborted || generation !== runGeneration) return getReverseStatus();
@@ -152,7 +236,7 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
     lastError = String(e?.message || e);
     await pushActivity?.({
       kind: "bridge",
-      message: "Reverse session open failed; retrying on keepalive",
+      message: "Could not open agent control; retrying shortly",
     });
   }
 
@@ -185,7 +269,7 @@ async function pollLoop(getSettings, pushActivity, onUseState, generation, pollS
       }
       if (r.status === 404) {
         mode = "unsupported";
-        lastError = "Session expired or bridge removed";
+        lastError = "Executor ended the session.";
         break;
       }
       if (!r.ok) {
@@ -197,6 +281,11 @@ async function pollLoop(getSettings, pushActivity, onUseState, generation, pollS
       const body = await r.json().catch(() => ({}));
       const jobs = body.jobs || body.items || (body.job ? [body.job] : []);
       lastOkAt = Date.now();
+
+      // A control session can also end by simply running out. Nothing calls
+      // start or stop in that case, so the poll reconciles: if what we would
+      // advertise now differs from what Executor was last told, tell it.
+      await reconcileAdvertisedAccess(getSettings);
 
       for (const job of jobs) {
         const id = job.id || job.jobId;

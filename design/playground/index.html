@@ -3,13 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Executor Browser — v0.7 patch bay playground</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Spline+Sans+Mono:wght@400;500;600;700&family=Spline+Sans:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <title>Executor Browser — side panel playground</title>
+    <!-- Matches the shipped panel: no remote font request. -->
     <!-- Canonical component sheet — same file the extension ships. No drift. -->
     <link rel="stylesheet" href="../../extension/sidebar.css" />
     <link rel="stylesheet" href="playground.css" />
@@ -17,10 +12,10 @@
   <body>
     <div class="stage">
       <aside class="meta">
-        <p class="eyebrow">Design source of truth · v0.7.0</p>
+        <p class="eyebrow">Design source of truth</p>
         <h1>Executor<em>/Browser</em></h1>
         <p class="lede">
-          "Patch bay, night shift." The side panel is the bench instrument that patches a remote
+          The side panel is a dense instrument face on Executor’s palette: it patches a remote
           brain (Executor) into local hands (Chrome). Warm carbon chassis, amber for anything that
           needs the operator, phosphor green strictly for <em>live</em>. The uplink spine traces
           current from Executor down into your tabs. This page imports the extension's own
@@ -46,9 +41,8 @@
         <div class="chassis">
           <header class="mast">
             <div class="mast-brand">
-              <div class="mark" aria-hidden="true"><i></i></div>
               <div class="mast-id">
-                <span class="wordmark">Executor<em>/Browser</em></span>
+                <span class="wordmark">executor<em>browser</em></span>
                 <span class="readout mono" id="headerStatus">Connected · reverse</span>
               </div>
             </div>
@@ -98,7 +92,7 @@
             <div class="monitor">
               <div class="monitor-head">
                 <span class="cap-label">Local preview</span>
-                <span class="urlbar mono" id="previewUrl">tbd.jiggytom.com/</span>
+                <span class="urlbar mono" id="previewUrl">example.com/</span>
                 <button type="button" class="ghost xs" id="btnCapture">Capture</button>
               </div>
               <div class="preview-stage">
@@ -122,7 +116,7 @@
                 </div>
               </div>
               <div class="monitor-foot">
-                <span id="previewTitle">EggOn — agents</span>
+                <span id="previewTitle">Example app — agents</span>
                 <span class="meta-right" id="previewError" hidden></span>
                 <span class="preview-local" id="previewLocalTag">Stays local</span>
               </div>
@@ -142,14 +136,13 @@
             <div class="module" id="connectCard">
               <div class="module-head">
                 <h2>Uplink</h2>
-                <span class="badge" id="labBadge">Lab</span>
               </div>
 
               <div class="conn-banner" id="connBanner" data-state="ok">
                 <span class="conn-dot" aria-hidden="true"></span>
                 <div class="conn-copy">
                   <strong id="connTitle">Connected</strong>
-                  <span id="connSub" class="conn-sub">lab-agents…ts.net:8444 · 12ms</span>
+                  <span id="connSub" class="conn-sub">localhost:3000 · 12ms</span>
                 </div>
               </div>
 
@@ -164,7 +157,7 @@
                 <label class="field">
                   Base URL
                   <div class="field-row">
-                    <input id="executorUrl" type="url" value="https://lab-agents.taile80474.ts.net:8444" />
+                    <input id="executorUrl" type="url" value="http://localhost:3000" />
                     <button type="button" class="ghost sm">Detect</button>
                   </div>
                 </label>
@@ -196,7 +189,7 @@
                   <span class="mx-tag ok-tag" id="driveModeTag">reverse</span>
                 </div>
                 <p class="mx-blurb" id="connectDriveBlurb">
-                  Reverse session live — agents use tools.browser.user.desktop. No local script.
+                  Reverse session live — agents use this browser's tools.browser.user.&lt;name&gt; address. No local script.
                 </p>
                 <ul class="matrix" id="connectMatrixOpt"></ul>
                 <div class="preset-row">
@@ -288,13 +281,13 @@
               <textarea class="prompt-box" rows="6" readonly id="agentPrompt">
 Executor CONNECTED. Browser drive path B (extension reverse) is enabled.
 
-Executor MCP: https://lab-agents…ts.net:8444/mcp
+Executor MCP: https://localhost:3000/mcp
 Chrome tools: extension-native (tabs, navigate, snapshot, click, type, screenshot).
 Prefer snapshot over screenshots. Tab group "Executor".</textarea
               >
             </div>
 
-            <footer class="inline-foot">v0.7.0 · patch bay</footer>
+            <footer class="inline-foot">Executor palette · dense panel</footer>
           </section>
         </div>
       </div>

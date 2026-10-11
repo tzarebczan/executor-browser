@@ -1,8 +1,8 @@
 /**
- * Executor Browser — service worker
+ * Executor Browser, service worker
  *
  * - Side panel + API-key connect (Tailscale)
- * - Reverse bridge (extension → Executor long-poll) — default and only drive path
+ * - Reverse bridge (extension → Executor long-poll), default and only drive path
  * - Tab group + local preview capture
  */
 
@@ -11,6 +11,8 @@ import {
   stopReverseBridge,
   getReverseStatus,
   handleBridgeToolCall,
+  refreshAdvertisedAccess,
+  clientInfo,
 } from "./lib/reverse-bridge.js";
 import {
   BROWSER_TOOLS_META,
@@ -18,49 +20,26 @@ import {
   listAgentTabs,
 } from "./lib/browser-tools.js";
 import {
-  ACCESS_DEFAULTS,
   accessAdvertisement,
   endControlSession,
   getAccessState,
   startControlSession,
 } from "./lib/access-policy.js";
-
-const DEFAULTS = {
-  executorUrl: "",
-  executorApiKey: "",
-  registeredAt: 0,
-  mode: "existing", // existing | extension-only (UI preference only)
-  groupTitle: "Executor",
-  groupColor: "blue",
-  activity: [],
-  ...ACCESS_DEFAULTS,
-};
-
-async function getSettings() {
-  const { settings } = await chrome.storage.local.get("settings");
-  return { ...DEFAULTS, ...settings };
-}
-
-async function setSettings(partial) {
-  const cur = await getSettings();
-  const next = { ...cur, ...partial };
-  await chrome.storage.local.set({ settings: next });
-  return next;
-}
-
-async function pushActivity(entry) {
-  const s = await getSettings();
-  const activity = [
-    {
-      id: entry.id || `event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      t: Date.now(),
-      ...entry,
-    },
-    ...(s.activity || []),
-  ].slice(0, 80);
-  await setSettings({ activity });
-  return activity;
-}
+import {
+  candidatesFromTabs,
+  detectExecutor,
+  expandUserInput,
+  localCandidates,
+  probeExecutor,
+} from "./lib/discovery.js";
+import {
+  clearActivity,
+  getActivity,
+  getSettings,
+  pushActivity,
+  removeActivityEntry,
+  setSettings,
+} from "./lib/settings-store.js";
 
 let indicatorRevision = 0;
 let indicatorTimer = null;
@@ -80,13 +59,43 @@ async function updateOwnedGroup(active) {
   }
 }
 
-async function setReadyIndicators() {
-  const ready = getReverseStatus().mode === "reverse";
-  await chrome.action.setBadgeText({ text: ready ? "ON" : "!" });
-  await chrome.action.setBadgeBackgroundColor({ color: ready ? "#34a853" : "#ea4335" });
-  await chrome.action.setTitle({
-    title: ready ? "Executor Browser - ready for agents" : "Executor Browser - not connected",
+/**
+ * Status is a dot on the mark, not a badge over it.
+ *
+ * Chrome paints badge text as a rounded rectangle across the bottom of the
+ * icon, which at 16px is most of the icon, so "ON" / "!" / "USE" hid the logo
+ * exactly when the extension had something to report. Each state is a
+ * pre-rendered variant of the mark with a small coloured dot in the corner
+ * instead (see design/make-icons.py), and the badge is left empty.
+ *
+ * @param {"off"|"error"|"live"|"active"} state
+ */
+async function paintIcon(state) {
+  await chrome.action.setIcon({
+    path: { 16: `icons/icon16-${state}.png`, 48: `icons/icon48-${state}.png` },
   });
+}
+
+/** What the icon should say when no agent is mid-operation. */
+async function restingState() {
+  if (getReverseStatus().mode === "reverse") return "live";
+  const settings = await getSettings();
+  // Nothing configured yet is not a fault. Only a browser that was set up and
+  // then lost its channel has something wrong with it.
+  return settings.executorUrl && settings.executorApiKey ? "error" : "off";
+}
+
+const RESTING_TITLES = {
+  live: "Executor Browser, agents can control this browser",
+  error: "Executor Browser, set up, but not connected",
+  off: "Executor Browser, not set up yet",
+};
+
+async function setReadyIndicators() {
+  const state = await restingState();
+  await chrome.action.setBadgeText({ text: "" });
+  await paintIcon(state);
+  await chrome.action.setTitle({ title: RESTING_TITLES[state] });
   await updateOwnedGroup(false);
 }
 
@@ -94,10 +103,10 @@ async function setUseIndicators(state) {
   if (state.active) {
     indicatorRevision += 1;
     if (indicatorTimer) clearTimeout(indicatorTimer);
-    await chrome.action.setBadgeText({ text: "USE" });
-    await chrome.action.setBadgeBackgroundColor({ color: "#f0a63e" });
+    await chrome.action.setBadgeText({ text: "" });
+    await paintIcon("active");
     await chrome.action.setTitle({
-      title: `Executor Browser - ${state.actor || "agent"} using ${state.tool || "browser"}`,
+      title: `Executor Browser, ${state.actor || "an agent"} is using ${state.tool || "the browser"}`,
     });
     await updateOwnedGroup(true);
     return;
@@ -108,6 +117,51 @@ async function setUseIndicators(state) {
   indicatorTimer = setTimeout(() => {
     if (indicatorRevision === revision) setReadyIndicators().catch(() => {});
   }, 1800);
+}
+
+/** Keep the last few addresses that really were Executor, most recent first. */
+const REMEMBERED_LIMIT = 5;
+
+async function rememberExecutorUrl(url) {
+  if (!url) return;
+  const settings = await getSettings();
+  const previous = Array.isArray(settings.knownExecutorUrls) ? settings.knownExecutorUrls : [];
+  const next = [url, ...previous.filter((known) => known !== url)].slice(0, REMEMBERED_LIMIT);
+  if (next.length === previous.length && next.every((value, i) => value === previous[i])) return;
+  await setSettings({ knownExecutorUrls: next });
+}
+
+/**
+ * Where to look for Executor, best bet first.
+ *
+ * Detect used to try two hard-coded localhost URLs, which cannot find a tailnet
+ * deployment, a MagicDNS name is per-tailnet and unguessable. These four
+ * sources between them cover how people actually run it, and order matters
+ * because the first match wins:
+ *
+ *  1. Whatever the user typed, expanded (a bare `workshop` resolves on a
+ *     tailnet, and people paste hostnames without a scheme).
+ *  2. Addresses that were Executor before, the "it worked yesterday" case.
+ *  3. Private-space origins from open tabs. Anyone who made an API key has had
+ *     the console open, so their own tabs are the one reliable source for an
+ *     address we could never guess.
+ *  4. A sweep of local ports, for a same-machine install.
+ */
+async function detectionCandidates(fromCaller = []) {
+  const settings = await getSettings();
+  const typed = fromCaller.flatMap((value) => expandUserInput(value));
+  const remembered = Array.isArray(settings.knownExecutorUrls) ? settings.knownExecutorUrls : [];
+  const saved = settings.executorUrl ? [settings.executorUrl] : [];
+
+  let fromTabs = [];
+  try {
+    const tabs = await chrome.tabs.query({});
+    fromTabs = candidatesFromTabs(tabs.map((tab) => tab.url));
+  } catch {
+    // Tab access can be refused; the other sources still stand.
+  }
+
+  return [...typed, ...saved, ...remembered, ...fromTabs, ...localCandidates()];
 }
 
 function startBridge() {
@@ -183,7 +237,7 @@ async function capturePreview(opts = {}) {
   ) {
     return {
       ok: false,
-      error: "Can't capture browser chrome pages — switch to a normal http(s) tab",
+      error: "Can't capture browser chrome pages, switch to a normal http(s) tab",
       tab,
     };
   }
@@ -241,7 +295,7 @@ async function capturePreview(opts = {}) {
     if (/MAX_CAPTURE_VISIBLE_TAB|quota|exceeds/i.test(msg)) {
       return {
         ok: false,
-        error: "Capture rate-limited by Chrome — wait a second and try again",
+        error: "Capture rate-limited by Chrome, wait a second and try again",
         tab,
       };
     }
@@ -249,46 +303,12 @@ async function capturePreview(opts = {}) {
       return {
         ok: false,
         error:
-          "Tab not visible — un-minimize the Chrome window with the agent tab, click it once, then Capture again",
+          "Tab not visible, un-minimize the Chrome window with the agent tab, click it once, then Capture again",
         tab,
       };
     }
     return { ok: false, error: msg, tab };
   }
-}
-
-/** Probe Executor HTTPS (no auth) — UI or /api/health. */
-async function probeExecutor(baseUrl) {
-  const base = (baseUrl || "").replace(/\/$/, "");
-  if (!base) return { ok: false, error: "No Executor URL" };
-  const started = performance.now();
-  for (const path of ["/", "/api/health"]) {
-    try {
-      const r = await fetch(base + path, { method: "GET", cache: "no-store" });
-      const ms = Math.round(performance.now() - started);
-      if (r.ok || r.status === 401 || r.status === 403) {
-        return { ok: true, status: r.status, ms, url: base, path };
-      }
-    } catch {
-      /* try next path */
-    }
-  }
-  return {
-    ok: false,
-    error: "Unreachable — join Tailscale or check URL",
-    url: base,
-    ms: Math.round(performance.now() - started),
-  };
-}
-
-/** Try candidate base URLs; return first that responds. */
-async function detectExecutor(candidates = []) {
-  const list = [...candidates].filter(Boolean);
-  for (const url of list) {
-    const p = await probeExecutor(url);
-    if (p.ok) return { ok: true, url: p.url, ms: p.ms, status: p.status };
-  }
-  return { ok: false, error: "No candidate Executor responded" };
 }
 
 /**
@@ -315,7 +335,7 @@ async function verifyExecutorAuth() {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "executor-browser", version: "0.9.1" },
+          clientInfo: clientInfo(),
         },
       }),
     });
@@ -353,9 +373,8 @@ chrome.alarms.onAlarm.addListener(async (a) => {
       startBridge().catch(() => {});
     }
   }
-  const ok = Boolean(s.executorApiKey && s.executorUrl) && getReverseStatus().mode === "reverse";
-  await chrome.action.setBadgeText({ text: ok ? "ON" : "!" });
-  await chrome.action.setBadgeBackgroundColor({ color: ok ? "#34a853" : "#ea4335" });
+  // One place decides what the icon shows; the keepalive only asks for a repaint.
+  await setReadyIndicators();
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -383,14 +402,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           browserTools: { ...BROWSER_TOOLS_META, access: await accessAdvertisement() },
           controlSession: (await getAccessState()).session,
           tabs,
-          activity: settings.activity || [],
+          activity: await getActivity(),
         });
         break;
       }
       case "saveSettings": {
         const patch = { ...msg.settings };
         const current = await getSettings();
-        const accessChanged = ["accessMode", "allowedHosts", "advancedMode", "sessionMinutes"].some(
+        const accessChanged = ["accessMode", "allowedHosts", "advancedMode", "cdpMode", "sessionMinutes"].some(
           (key) =>
             Object.hasOwn(patch, key) && JSON.stringify(patch[key]) !== JSON.stringify(current[key]),
         );
@@ -404,10 +423,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         delete patch.driveMode;
         delete patch.tailscaleHint;
         const settings = await setSettings(patch);
-        if (accessChanged && getReverseStatus().running) {
-          await stopReverseBridge();
-          startBridge().catch(() => {});
-        }
+        // Re-advertise rather than reconnect: the new limits are enforced here
+        // regardless, and dropping the long-poll to tell Executor about them
+        // interrupts any work in flight.
+        if (accessChanged) await refreshAdvertisedAccess(getSettings);
         sendResponse({
           ok: true,
           settings: {
@@ -455,12 +474,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case "probeExecutor": {
         const s = await getSettings();
-        sendResponse(await probeExecutor(msg.url || s.executorUrl));
+        const probe = await probeExecutor(msg.url || s.executorUrl);
+        if (probe.ok) await rememberExecutorUrl(probe.url);
+        sendResponse(probe);
         break;
       }
-      case "detectExecutor":
-        sendResponse(await detectExecutor(msg.candidates || []));
+      case "detectExecutor": {
+        const found = await detectExecutor(await detectionCandidates(msg.candidates || []));
+        if (found.ok) await rememberExecutorUrl(found.url);
+        sendResponse(found);
         break;
+      }
       case "verifyExecutorAuth":
         sendResponse(await verifyExecutorAuth());
         break;
@@ -480,25 +504,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, activity: await pushActivity(msg.entry || {}) });
         break;
       case "clearActivity":
-        await setSettings({ activity: [] });
+        await clearActivity();
         sendResponse({ ok: true });
         break;
       case "startControlSession": {
         const session = await startControlSession("User");
         await pushActivity({ kind: "session", message: `${session.mode === "full" ? "All Chrome tabs" : "Executor tabs"} access window started` });
+        // Starting a session widens what is permitted, including Advanced.
+        await refreshAdvertisedAccess(getSettings);
         sendResponse({ ok: true, session });
         break;
       }
       case "endControlSession":
         await endControlSession();
         await pushActivity({ kind: "session", message: "Control session ended" });
+        await refreshAdvertisedAccess(getSettings);
         sendResponse({ ok: true });
         break;
       case "removeActivity": {
-        const settings = await getSettings();
-        const activity = (settings.activity || []).filter((entry) => entry.id !== msg.id);
-        await setSettings({ activity });
-        sendResponse({ ok: true, activity });
+        sendResponse({ ok: true, activity: await removeActivityEntry(msg.id) });
         break;
       }
       default:
