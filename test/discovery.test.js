@@ -5,6 +5,7 @@ import {
   candidatesFromTabs,
   detectExecutor,
   expandUserInput,
+  interpretCredentialCheck,
   isPrivateHost,
   localCandidates,
   probeExecutor,
@@ -297,10 +298,28 @@ test("a sweep does not run every probe at once", async () => {
   assert.ok(peak <= 4, `peak concurrency was ${peak}`);
 });
 
-test("the local sweep covers more than the one port everything else uses", async () => {
-  const ports = new Set(localCandidates().map((url) => new URL(url).port));
-  assert.ok(ports.size > 1);
+test("the local sweep starts at the v2 listen address", async () => {
+  const candidates = localCandidates();
+  const ports = new Set(candidates.map((url) => new URL(url).port));
+  assert.equal(candidates[0], "http://127.0.0.1:4312");
   assert.ok(ports.has("3000"));
+});
+
+test("a session list accepts the key, and an outage is not a rejected key", () => {
+  assert.deepEqual(interpretCredentialCheck(200, JSON.stringify({ sessions: [] })), {
+    ok: true,
+    invalid: false,
+    status: 200,
+  });
+  assert.equal(interpretCredentialCheck(401, BRIDGE_401).invalid, true);
+  assert.equal(interpretCredentialCheck(403, "").invalid, true);
+  const outage = interpretCredentialCheck(
+    503,
+    JSON.stringify({ error: "Executor could not check the credential. Try again." }),
+  );
+  assert.equal(outage.ok, false);
+  assert.equal(outage.invalid, false);
+  assert.equal(interpretCredentialCheck(200, "<html></html>").ok, false);
 });
 
 test("a probe that never answers is abandoned rather than hanging Detect", async () => {

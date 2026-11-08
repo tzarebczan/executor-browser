@@ -12,15 +12,15 @@ Executor Browser supports **one** drive mode:
 | **Local process** | None |
 
 ```text
-Agent → Executor plugin callTool → pending job
+Agent → Executor browser channel → pending job
 Extension ← GET /jobs ←
 Extension → runBrowserTool → POST /result
 ```
 
 ### Requirements
 
-- Executor self-host with `@executor-js/plugin-browser-bridge` mounted
-- User API key that can open reverse sessions
+- Executor v2 on this machine (`http://127.0.0.1:4312`) or a self-host on the tailnet. The browser channel is built into those servers.
+- An API key for that server
 - At least one tab in the extension-owned Executor group
 
 ### Not in scope (removed)

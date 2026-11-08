@@ -38,17 +38,6 @@ function baseUrl(settings) {
   return (settings.executorUrl || "").replace(/\/$/, "");
 }
 
-/**
- * Identify this extension to Executor.
- *
- * The version is read from the manifest rather than written out here, because
- * a literal drifts: the MCP handshake and the reverse session had already
- * disagreed about which version was running.
- */
-export function clientInfo() {
-  return { name: "executor-browser", version: chrome.runtime.getManifest().version };
-}
-
 async function authHeaders(settings) {
   const h = {
     "content-type": "application/json",

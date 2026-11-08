@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Executor Browser",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Connect this browser to Executor over Tailscale so an agent can drive it. Developer tools can stay on.",
   "minimum_chrome_version": "116",
   "icons": {

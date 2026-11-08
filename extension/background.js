@@ -12,7 +12,6 @@ import {
   getReverseStatus,
   handleBridgeToolCall,
   refreshAdvertisedAccess,
-  clientInfo,
 } from "./lib/reverse-bridge.js";
 import {
   BROWSER_TOOLS_META,
@@ -26,9 +25,11 @@ import {
   startControlSession,
 } from "./lib/access-policy.js";
 import {
+  BRIDGE_PROBE_PATH,
   candidatesFromTabs,
   detectExecutor,
   expandUserInput,
+  interpretCredentialCheck,
   localCandidates,
   probeExecutor,
 } from "./lib/discovery.js";
@@ -312,52 +313,40 @@ async function capturePreview(opts = {}) {
 }
 
 /**
- * Verify personal API key: MCP initialize with Bearer.
- * Starts reverse bridge on success.
+ * Verify the API key against the browser channel.
+ *
+ * GET /api/browser-bridge/sessions lists sessions and does not open one.
+ * The local server refuses this extension's origin on /mcp, so that route
+ * cannot be the check. A 503 leaves the saved key in place.
+ * Starts the long-poll on success.
  */
 async function verifyExecutorAuth() {
   const s = await getSettings();
   if (!s.executorUrl) return { ok: false, error: "Set Executor base URL" };
   if (!s.executorApiKey) return { ok: false, error: "Paste personal API key" };
-  const mcpUrl = s.executorUrl.replace(/\/$/, "") + "/mcp";
+  const url = s.executorUrl.replace(/\/$/, "") + BRIDGE_PROBE_PATH;
   try {
-    const r = await fetch(mcpUrl, {
-      method: "POST",
+    const r = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
       headers: {
         authorization: `Bearer ${s.executorApiKey}`,
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
+        accept: "application/json",
       },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: clientInfo(),
-        },
-      }),
     });
     const text = await r.text();
-    if (r.status === 401 || r.status === 403) {
+    const verdict = interpretCredentialCheck(r.status, text);
+    if (verdict.invalid) {
       await setSettings({ registeredAt: 0 });
       await stopReverseBridge();
-      return { ok: false, error: "Invalid API key (401/403)", status: r.status };
+    } else if (verdict.ok) {
+      await setSettings({ registeredAt: Date.now() });
+      await pushActivity({ kind: "executor", message: "API key verified with Executor" });
+      startBridge().catch(() => {});
     }
-    if (!r.ok) {
-      return {
-        ok: false,
-        error: `MCP initialize failed (${r.status})`,
-        detail: text.slice(0, 200),
-      };
-    }
-    await setSettings({ registeredAt: Date.now() });
-    await pushActivity({ kind: "executor", message: "API key verified with Executor" });
-    startBridge().catch(() => {});
-    return { ok: true, status: r.status, snippet: text.slice(0, 120) };
+    return verdict;
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    return { ok: false, invalid: false, error: String(e?.message || e) };
   }
 }
 

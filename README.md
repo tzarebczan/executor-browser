@@ -15,7 +15,7 @@ Agents use **`tools.browser.user.<connection>.*`** for typed tab, navigation, in
 
 1. `chrome://extensions` → Developer mode → Load unpacked → select `extension/`.
 2. Open the side panel (extension icon).
-3. Connect with your lab Executor URL + API key.
+3. Connect with an Executor URL and API key. On this machine that URL is `http://127.0.0.1:4312`.
 4. Open an agent tab, then use agents against the browser tools.
 
 ## Architecture (short)

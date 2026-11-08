@@ -30,17 +30,20 @@ test("does not truncate reverse-bridge screenshot results", async () => {
 });
 
 test("reports the shipped version, never a hand-written copy of it", async () => {
-  // A literal drifts: the MCP handshake and the reverse session had already
-  // disagreed about which version was running. The manifest is the one source.
-  for (const file of ["../extension/lib/reverse-bridge.js", "../extension/background.js"]) {
+  // A literal drifts. The session identity and the panel both read the manifest.
+  for (const file of [
+    "../extension/lib/reverse-bridge.js",
+    "../extension/lib/browser-identity.js",
+    "../extension/background.js",
+  ]) {
     const source = await readFile(new URL(file, import.meta.url), "utf8");
     assert.doesNotMatch(source, /version: ["']\d+\.\d+\.\d+["']/, file);
   }
-  const reverseBridge = await readFile(
-    new URL("../extension/lib/reverse-bridge.js", import.meta.url),
+  const identity = await readFile(
+    new URL("../extension/lib/browser-identity.js", import.meta.url),
     "utf8",
   );
-  assert.match(reverseBridge, /chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(identity, /chrome\.runtime\.getManifest\(\)\.version/);
 
   // The panel was the file this rule did not cover, so of course it is where a
   // literal survived, and it had already fallen a patch release behind the

@@ -18,18 +18,65 @@
  * the user already has open, and a wider sweep of local ports.
  */
 
-/** Only Executor with the browser bridge answers 401 here. */
+/** Only Executor with the browser channel answers 401 here. The same path, with a key, lists sessions. */
 export const BRIDGE_PROBE_PATH = "/api/browser-bridge/sessions";
+
+/**
+ * What an authenticated GET of {@link BRIDGE_PROBE_PATH} means.
+ *
+ * The v2 local server refuses this extension's origin on `/mcp`. The browser
+ * channel accepts the same Bearer key and lists sessions without opening one.
+ * 401 and 403 are a rejected key. 503 means the check itself failed.
+ *
+ * @param {number} status
+ * @param {string} [body]
+ * @returns {{ok: boolean, invalid: boolean, error?: string, status: number}}
+ */
+export function interpretCredentialCheck(status, body = "") {
+  if (status === 401 || status === 403) {
+    return { ok: false, invalid: true, error: "Invalid API key (401/403)", status };
+  }
+  if (status === 503) {
+    return {
+      ok: false,
+      invalid: false,
+      error: "Executor could not check the credential. Try again.",
+      status,
+    };
+  }
+  if (status >= 200 && status < 300) {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = null;
+    }
+    if (parsed && Array.isArray(parsed.sessions)) return { ok: true, invalid: false, status };
+    return {
+      ok: false,
+      invalid: false,
+      error: "This address did not answer the browser channel",
+      status,
+    };
+  }
+  return {
+    ok: false,
+    invalid: false,
+    error: `Executor rejected the key check (${status})`,
+    status,
+  };
+}
 
 /**
  * Ports worth trying on this machine.
  *
- * Not just 3000: that port belongs to whatever the user last started, and a
- * self-hosted Executor is as often behind a container mapping or a TLS port.
+ * 4312 is the v2 local server. It binds 127.0.0.1 only, so that host leads.
+ * 3000 belongs to whatever else was last started, and a self-host is often
+ * behind a container mapping or a TLS port.
  */
-export const LOCAL_PORTS = [3000, 3001, 4788, 5173, 8080, 8443, 8444];
+export const LOCAL_PORTS = [4312, 3000, 3001, 4788, 5173, 8080, 8443, 8444];
 
-const LOCAL_HOSTS = ["localhost", "127.0.0.1"];
+const LOCAL_HOSTS = ["127.0.0.1", "localhost"];
 
 /** A sweep is many requests; each one gets a short leash. */
 const PROBE_TIMEOUT_MS = 2500;
