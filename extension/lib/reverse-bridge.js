@@ -33,6 +33,25 @@ let advertisedAccess = null;
 /** Catalog connection Executor assigned for this instance. */
 let assignedConnection = null;
 let assignedBrowser = null;
+/** A capability refresh that never answers must not stall the next poll. */
+const CAPABILITY_REFRESH_MS = 5_000;
+
+function boundSignal(parent, timeoutMs) {
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort();
+  if (parent) {
+    if (parent.aborted) controller.abort();
+    else parent.addEventListener("abort", onParentAbort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    stop() {
+      clearTimeout(timer);
+      parent?.removeEventListener("abort", onParentAbort);
+    },
+  };
+}
 
 function baseUrl(settings) {
   return (settings.executorUrl || "").replace(/\/$/, "");
@@ -77,22 +96,28 @@ export function getReverseStatus() {
  * Best-effort by design: a failure here must never disturb the poll loop, and
  * the next reconnect re-advertises anyway.
  */
-export async function refreshAdvertisedAccess(getSettings) {
+export async function refreshAdvertisedAccess(getSettings, signal = abort?.signal) {
   if (!sessionId || mode !== "reverse") return false;
+  const bounded = boundSignal(signal, CAPABILITY_REFRESH_MS);
   try {
     const settings = await getSettings();
+    if (bounded.signal.aborted) return false;
     const base = baseUrl(settings);
     if (!base) return false;
     const access = await accessAdvertisement();
-    const r = await fetch(`${base}/api/browser-bridge/session/${encodeURIComponent(sessionId)}`, {
+    if (bounded.signal.aborted) return false;
+    const r = await globalThis.fetch(`${base}/api/browser-bridge/session/${encodeURIComponent(sessionId)}`, {
       method: "PATCH",
       headers: await authHeaders(settings),
       body: JSON.stringify({ capabilities: { ...BROWSER_TOOLS_META, access } }),
+      signal: bounded.signal,
     });
     if (r.ok) advertisedAccess = JSON.stringify(access);
     return r.ok;
   } catch {
     return false;
+  } finally {
+    bounded.stop();
   }
 }
 
@@ -104,11 +129,11 @@ export async function refreshAdvertisedAccess(getSettings) {
  * still shows the session as running. Called on every poll, so the two agree
  * within one poll interval at worst, and sends nothing when nothing changed.
  */
-async function reconcileAdvertisedAccess(getSettings) {
+async function reconcileAdvertisedAccess(getSettings, signal) {
   try {
     const next = JSON.stringify(await accessAdvertisement());
-    if (next === advertisedAccess) return false;
-    return await refreshAdvertisedAccess(getSettings);
+    if (signal?.aborted || next === advertisedAccess) return false;
+    return await refreshAdvertisedAccess(getSettings, signal);
   } catch {
     return false;
   }
@@ -161,7 +186,7 @@ export async function startReverseBridge(getSettings, pushActivity, onUseState) 
     const access = await accessAdvertisement();
     const identity = await reverseClientIdentity(settings);
     assignedBrowser = identity.browser;
-    const r = await fetch(`${base}/api/browser-bridge/session`, {
+    const r = await globalThis.fetch(`${base}/api/browser-bridge/session`, {
       method: "POST",
       headers: await authHeaders(settings),
       signal: controller.signal,
@@ -242,7 +267,7 @@ async function pollLoop(getSettings, pushActivity, onUseState, generation, pollS
     try {
       const settings = await getSettings();
       const base = baseUrl(settings);
-      const r = await fetch(
+      const r = await globalThis.fetch(
         `${base}/api/browser-bridge/session/${encodeURIComponent(pollSessionId)}/jobs?waitMs=25000`,
         {
           method: "GET",
@@ -270,45 +295,53 @@ async function pollLoop(getSettings, pushActivity, onUseState, generation, pollS
       const body = await r.json().catch(() => ({}));
       const jobs = body.jobs || body.items || (body.job ? [body.job] : []);
       lastOkAt = Date.now();
+      if (!running || generation !== runGeneration) break;
 
       // A control session can also end by simply running out. Nothing calls
       // start or stop in that case, so the poll reconciles: if what we would
       // advertise now differs from what Executor was last told, tell it.
-      await reconcileAdvertisedAccess(getSettings);
-
-      for (const job of jobs) {
-        const id = job.id || job.jobId;
-        const tool = job.tool || job.name || job.method;
-        const args = job.args || job.arguments || job.params || {};
-        const startedAt = Date.now();
-        activeUse = {
-          startedAt,
-          actor: displayActor(job.caller),
-          tool,
-        };
-        await onUseState?.({ active: true, ...activeUse });
-        let result;
-        try {
-          result = await runBrowserTool(tool, args);
-        } catch (e) {
-          result = { ok: false, error: String(e?.message || e) };
+      // The refresh runs beside the jobs. A stalled PATCH must not hold work
+      // that has already arrived, and stopping the connection cancels it.
+      const refresh = reconcileAdvertisedAccess(getSettings, controller.signal);
+      try {
+        for (const job of jobs) {
+          if (!running || generation !== runGeneration || controller.signal.aborted) break;
+          const id = job.id || job.jobId;
+          const tool = job.tool || job.name || job.method;
+          const args = job.args || job.arguments || job.params || {};
+          const startedAt = Date.now();
+          activeUse = {
+            startedAt,
+            actor: displayActor(job.caller),
+            tool,
+          };
+          await onUseState?.({ active: true, ...activeUse });
+          let result;
+          try {
+            result = await runBrowserTool(tool, args);
+          } catch (e) {
+            result = { ok: false, error: String(e?.message || e) };
+          }
+          let deliveryError = null;
+          try {
+            await postResult(settings, id, result, pollSessionId);
+          } catch (error) {
+            deliveryError = error;
+          }
+          if (deliveryError) {
+            result = { ok: false, error: `Could not return result: ${String(deliveryError?.message || deliveryError)}` };
+          }
+          const entry = browserActivityEntry(job, result, startedAt);
+          lastUse = entry;
+          activeUse = null;
+          await pushActivity?.(entry);
+          await onUseState?.({ active: false, entry });
+          if (deliveryError) throw deliveryError;
         }
-        let deliveryError = null;
-        try {
-          await postResult(settings, id, result, pollSessionId);
-        } catch (error) {
-          deliveryError = error;
-        }
-        if (deliveryError) {
-          result = { ok: false, error: `Could not return result: ${String(deliveryError?.message || deliveryError)}` };
-        }
-        const entry = browserActivityEntry(job, result, startedAt);
-        lastUse = entry;
-        activeUse = null;
-        await pushActivity?.(entry);
-        await onUseState?.({ active: false, entry });
-        if (deliveryError) throw deliveryError;
+      } finally {
+        await refresh;
       }
+      if (!running || generation !== runGeneration) break;
     } catch (e) {
       if (controller.signal.aborted || !running || generation !== runGeneration) break;
       lastError = String(e?.message || e);
@@ -327,7 +360,7 @@ async function postResult(settings, jobId, result, resultSessionId = sessionId) 
   const payload = { ...result };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await fetch(
+      const response = await globalThis.fetch(
         `${base}/api/browser-bridge/session/${encodeURIComponent(resultSessionId)}/result`,
         {
           method: "POST",

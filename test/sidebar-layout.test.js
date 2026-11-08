@@ -17,6 +17,11 @@ test("the panel is one screen: status, address, key, developer tools", async () 
   assert.doesNotMatch(html, /Local preview/);
 });
 
+test("hidden controls stay hidden when a class sets display", async () => {
+  const css = await readFile(new URL("extension/sidebar.css", root), "utf8");
+  assert.match(css, /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/);
+});
+
 test("status is large enough to read and coloured by state", async () => {
   const css = await readFile(new URL("extension/sidebar.css", root), "utf8");
   const glance = css.match(/\.glance\s*\{[\s\S]*?\}/)?.[0] || "";

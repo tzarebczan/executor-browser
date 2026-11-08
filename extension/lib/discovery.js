@@ -90,11 +90,40 @@ const POOL = 6;
  *   status?: number, url?: string}} ProbeResult
  */
 
+function aborted() {
+  const error = new Error("aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+/**
+ * Headers and the body share one deadline. A server that answers and then
+ * holds the body open must not stall every other candidate.
+ *
+ * @param {typeof fetch} doFetch
+ * @param {string} url
+ * @param {number} timeoutMs
+ * @returns {Promise<{response: Response, body: string}>}
+ */
 async function fetchWithTimeout(doFetch, url, timeoutMs) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer;
+  /** @type {(error: Error) => void} */
+  let rejectDeadline = () => {};
+  const deadline = new Promise((_, reject) => {
+    rejectDeadline = reject;
+    timer = setTimeout(() => {
+      controller.abort();
+      rejectDeadline(aborted());
+    }, timeoutMs);
+  });
   try {
-    return await doFetch(url, { method: "GET", cache: "no-store", signal: controller.signal });
+    const response = await Promise.race([
+      doFetch(url, { method: "GET", cache: "no-store", signal: controller.signal }),
+      deadline,
+    ]);
+    const body = await Promise.race([response.text(), deadline]);
+    return { response, body: typeof body === "string" ? body : "" };
   } finally {
     clearTimeout(timer);
   }
@@ -117,10 +146,9 @@ export async function probeExecutor(baseUrl, deps = {}) {
   let reached = false;
 
   try {
-    const response = await fetchWithTimeout(doFetch, base + BRIDGE_PROBE_PATH, timeoutMs);
+    const { response, body } = await fetchWithTimeout(doFetch, base + BRIDGE_PROBE_PATH, timeoutMs);
     reached = true;
     if (response.status === 401 || response.status === 403) {
-      const body = await response.text().catch(() => "");
       if (/browser.?bridge/i.test(body)) {
         return {
           ok: true,
@@ -150,10 +178,9 @@ export async function probeExecutor(baseUrl, deps = {}) {
   // the server. v1 answers /api/health; v2 answers /health. Either shape counts.
   for (const path of ["/api/health", "/health"]) {
     try {
-      const response = await fetchWithTimeout(doFetch, base + path, timeoutMs);
+      const { response, body } = await fetchWithTimeout(doFetch, base + path, timeoutMs);
       reached = true;
-      const body = response.ok ? await response.text().catch(() => "") : "";
-      if (/"status"\s*:\s*"(ok|degraded)"/.test(body)) {
+      if (response.ok && /"status"\s*:\s*"(ok|degraded)"/.test(body)) {
         return {
           ok: false,
           verdict: "bridge-missing",

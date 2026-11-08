@@ -322,6 +322,50 @@ test("a session list accepts the key, and an outage is not a rejected key", () =
   assert.equal(interpretCredentialCheck(200, "<html></html>").ok, false);
 });
 
+test("headers followed by a stalled body do not hold the probe", async () => {
+  const fetch = () =>
+    new Response(
+      new ReadableStream({
+        pull() {
+          return new Promise(() => {});
+        },
+      }),
+      { status: 401 },
+    );
+
+  const probe = await Promise.race([
+    probeExecutor("http://stall:3000", { fetch, now, timeoutMs: 30 }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("probe hung")), 500)),
+  ]);
+
+  assert.equal(probe.verdict, "unreachable");
+});
+
+test("a stalled body does not hide another Executor", async () => {
+  const fetch = (url) => {
+    if (new URL(url).origin === "http://stall:3000") {
+      return new Response(
+        new ReadableStream({
+          pull() {
+            return new Promise(() => {});
+          },
+        }),
+        { status: 401 },
+      );
+    }
+    if (url.includes("browser-bridge")) return new Response(BRIDGE_401, { status: 401 });
+    throw new Error("ECONNREFUSED");
+  };
+
+  const found = await Promise.race([
+    detectExecutor(["http://stall:3000", "http://ok:4400"], { fetch, now, timeoutMs: 40, limit: 2 }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("detect hung")), 500)),
+  ]);
+
+  assert.equal(found.ok, true);
+  assert.equal(found.url, "http://ok:4400");
+});
+
 test("a probe that never answers is abandoned rather than hanging Detect", async () => {
   // Without this, one unreachable tailnet host stalls the whole sweep.
   const fetch = (_url, init) =>
